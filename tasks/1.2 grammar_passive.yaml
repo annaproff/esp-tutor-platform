@@ -1,0 +1,390 @@
+=====================================================================
+Task #1.2: Passive Voice — Computer Technology (B2)
+Version: 1.0
+=====================================================================
+
+meta:
+  id: task_grammar_passive
+  title: "Passive Voice — Computer Technology (B2)"
+  max_score: 10
+  llm_calls: 2
+  est_tokens: "8-10k"
+  est_cost_rub: "6-10"
+
+student_context:
+  age: 18
+  major: mathematics
+  level: "B1 (target: B2 grammar)"
+  topic: "Passive Voice in Computer Technology"
+
+settings:
+  answers:
+    language: en
+    min_words: 5
+    russian_detect: "cyrillic > 50%"
+  attempts:
+    max: 2
+
+steps:
+  - id: start
+    type: gate
+    say: |
+      Hi! This task will help you practice Passive Voice (B2 level)
+      using computer technology vocabulary.
+      Press Start when you're ready.
+    buttons: ["Start"]
+    next: q1
+
+  - id: q1
+    type: question
+    topic: "Passive Voice Knowledge"
+    say: "What do you remember about the Passive Voice in English? When do we use it and how is it formed?"
+    save_as: answers.q1
+    next: q2
+
+  - id: q2
+    type: question
+    topic: "Practice"
+    say: |
+      Rewrite these sentences in the Passive Voice:
+      1. The programmer wrote the code yesterday.
+      2. The company has released a new operating system.
+    save_as: answers.q2
+    next: grammar_reference
+
+  - id: grammar_reference
+    type: message
+    say: |
+      Here's a quick reference table for Passive Voice (B2):
+
+      | Tense | Active | Passive |
+      |-------|--------|---------|
+      | Present Simple | writes | is written |
+      | Past Simple | wrote | was written |
+      | Present Perfect | has written | has been written |
+      | Past Perfect | had written | had been written |
+      | Modal (must) | must write | must be written |
+      | Reporting verb | is believed to write | is believed to be written |
+
+      Now you'll get a multiple-choice test with 10 questions.
+      Write Ready! when you're prepared.
+    buttons: ["Ready!"]
+    next: mc1
+
+  - id: mc1
+    type: multiple_choice
+    topic: "Present Simple Passive"
+    question: "The new security patch ______ by the development team every month."
+    options:
+      A: "is deployed"
+      B: "was deployed"
+      C: "has been deployed"
+      D: "deploys"
+    correct: A
+    save_as: answers.mc1
+    next: mc2
+
+  - id: mc2
+    type: multiple_choice
+    topic: "Past Simple Passive"
+    question: "The database ______ last night during the maintenance window."
+    options:
+      A: "is backed up"
+      B: "was backed up"
+      C: "has been backed up"
+      D: "backed up"
+    correct: B
+    save_as: answers.mc2
+    next: mc3
+
+  - id: mc3
+    type: multiple_choice
+    topic: "Present Perfect Passive"
+    question: "Several vulnerabilities ______ in the system so far."
+    options:
+      A: "are discovered"
+      B: "were discovered"
+      C: "have been discovered"
+      D: "discovered"
+    correct: C
+    save_as: answers.mc3
+    next: mc4
+
+  - id: mc4
+    type: multiple_choice
+    topic: "Past Perfect Passive"
+    question: "The server ______ before the attack occurred."
+    options:
+      A: "is compromised"
+      B: "was compromised"
+      C: "had been compromised"
+      D: "has been compromised"
+    correct: C
+    save_as: answers.mc4
+    next: mc5
+
+  - id: mc5
+    type: multiple_choice
+    topic: "Modal Passive"
+    question: "All user data ______ encrypted according to the new policy."
+    options:
+      A: "must be"
+      B: "must"
+      C: "must been"
+      D: "must to be"
+    correct: A
+    save_as: answers.mc5
+    next: mc6
+
+  - id: mc6
+    type: multiple_choice
+    topic: "Reporting Verb Passive"
+    question: "The algorithm ______ to improve search accuracy by 40%."
+    options:
+      A: "believes"
+      B: "is believed"
+      C: "is believed to"
+      D: "believed to"
+    correct: C
+    save_as: answers.mc6
+    next: mc7
+
+  - id: mc7
+    type: multiple_choice
+    topic: "Passive with Infinitive"
+    question: "The software update needs ______ before Friday."
+    options:
+      A: "to install"
+      B: "to be installed"
+      C: "installing"
+      D: "be installed"
+    correct: B
+    save_as: answers.mc7
+    next: mc8
+
+  - id: mc8
+    type: multiple_choice
+    topic: "Present Simple Passive"
+    question: "User passwords ______ in a secure database."
+    options:
+      A: "store"
+      B: "are stored"
+      C: "stored"
+      D: "have stored"
+    correct: B
+    save_as: answers.mc8
+    next: mc9
+
+  - id: mc9
+    type: multiple_choice
+    topic: "Past Simple Passive"
+    question: "The firewall ______ by the IT team yesterday."
+    options:
+      A: "configures"
+      B: "is configured"
+      C: "was configured"
+      D: "configured"
+    correct: C
+    save_as: answers.mc9
+    next: mc10
+
+  - id: mc10
+    type: multiple_choice
+    topic: "Present Perfect Passive"
+    question: "Three major bugs ______ in the latest release."
+    options:
+      A: "fix"
+      B: "are fixed"
+      C: "were fixed"
+      D: "have been fixed"
+    correct: D
+    save_as: answers.mc10
+    next: grade
+
+  - id: grade
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0
+    prompt: prompts.grade
+    inputs: [student_context, rubric, answers, profile]
+    output: schemas.grade
+    checks:
+      - "accuracy: int 0..10"
+      - "mc_score: int 0..10"
+    on_check_fail: "retry 1 time"
+    compute: "total = mc_score"
+    save_as: grade
+    next: report
+
+  - id: report
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0.2
+    prompt: prompts.report
+    inputs: [student_context, answers, grade]
+    output: schemas.report
+    save_as: report
+    next: deliver
+
+  - id: deliver
+    type: action
+    do:
+      build_file: templates.final_md
+      send_to_teacher: "final_md + teacher_meta"
+      send_to_student: "final_md"
+      write_row: "results_table"
+      update_profile: grade.profile_notes
+    say: "Here is your Digital Presentation. Great work!"
+    next: done
+
+rubric:
+  mc_accuracy:
+    "9-10": "Excellent understanding of Passive Voice forms"
+    "7-8": "Good understanding; minor errors"
+    "5-6": "Basic understanding; several errors"
+    "3-4": "Limited understanding; frequent errors"
+    "0-2": "Poor understanding; most answers incorrect"
+  open_answers:
+    "good": "Clear explanation; correct transformation of sentences"
+    "partial": "Some understanding; errors in transformation"
+    "weak": "Unclear explanation; incorrect transformation"
+
+prompts:
+  grade: |
+    Ты экспертный тьютор по английскому языку. Оцени ответы студента
+    по теме Passive Voice (B2 level).
+
+    {profile_block}
+
+    ОТВЕТЫ СТУДЕНТА НА ОТКРЫТЫЕ ВОПРОСЫ:
+    q1 (объяснение Passive Voice): {q1}
+    q2 (трансформация предложений): {q2}
+
+    ОТВЕТЫ НА ТЕСТ (10 вопросов):
+    {mc_answers}
+
+    ПРАВИЛЬНЫЕ ОТВЕТЫ:
+    mc1: A, mc2: B, mc3: C, mc4: C, mc5: A, mc6: C, mc7: B, mc8: B, mc9: C, mc10: D
+
+    Подсчитай количество правильных ответов в тесте (mc_score из 10).
+    Оцени открытые ответы (q1, q2) качественно.
+
+    Верни СТРОГО JSON без markdown:
+    {{
+      "mc_score": <int 0-10>,
+      "mc_details": {{
+        "mc1": {{"student": "...", "correct": "A", "is_correct": true/false}},
+        ...
+      }},
+      "open_answers_quality": "good | partial | weak",
+      "strengths": ["...", "..."],
+      "improvements": ["...", "..."],
+      "errors": [{{"question": "mc3", "student_answer": "...", "correct_answer": "C", "explanation": "..."}}],
+      "profile_notes": {{
+        "recurring_errors": ["..."],
+        "resolved_since_last": ["..."],
+        "estimated_level": "B1 | B1+ | B2",
+        "grammar_gaps": ["..."]
+      }}
+    }}
+
+    Правила:
+    - mc_details: для каждого вопроса укажи ответ студента и правильный
+    - errors: только для неправильных ответов (макс 5)
+    - profile_notes: отметь прогресс в грамматике
+    - Весь фидбек на АНГЛИЙСКОМ
+
+  report: |
+    Ты экспертный тьютор. Сформируй Digital Presentation по Passive Voice.
+
+    ОТВЕТЫ СТУДЕНТА:
+    q1: {q1}
+    q2: {q2}
+
+    РЕЗУЛЬТАТЫ ТЕСТА:
+    {mc_details}
+    Score: {mc_score}/10
+
+    ОЦЕНКА:
+    {grade_json}
+
+    Сформируй Markdown-отчет:
+
+    ## 1. Passive Voice Quick Reference
+    Таблица форм пассива с примерами по IT-тематике:
+    - Present Simple Passive
+    - Past Simple Passive
+    - Present Perfect Passive
+    - Past Perfect Passive
+    - Modal Passive
+    - Passive with reporting verbs
+
+    ## 2. Practice Task — Multiple Choice
+    Все 10 вопросов с вариантами ответов.
+
+    ## 3. Answer Key & Explanations
+    Для каждого вопроса: правильный ответ + объяснение (1-2 предложения).
+
+    ## 4. Student Performance
+    - Score: {mc_score}/10
+    - Strengths: {strengths}
+    - Areas for Improvement: {improvements}
+    - Recommendations: 2-3 конкретных совета по отработке пассива
+
+    Output ONLY the Markdown.
+
+schemas:
+  grade:
+    mc_score: "int 0..10"
+    mc_details: "{{mc1: {{student, correct, is_correct}}, ...}}"
+    open_answers_quality: "good | partial | weak"
+    strengths: "[str] — 2-3 items"
+    improvements: "[str] — 2-3 items"
+    errors: "[{{question, student_answer, correct_answer, explanation}}]"
+    profile_notes:
+      recurring_errors: "[str]"
+      resolved_since_last: "[str]"
+      estimated_level: "B1 | B1+ | B2"
+      grammar_gaps: "[str]"
+  report:
+    quick_reference: "str (table)"
+    practice_task: "str (10 questions)"
+    answer_key: "str (10 explanations)"
+    performance: "str"
+
+templates:
+  final_md: |
+    # Digital Presentation: Passive Voice — Computer Technology (B2)
+
+    Student: {student_name} · Date: {date}
+
+    ## 1. Passive Voice Quick Reference
+    {quick_reference}
+
+    ## 2. Practice Task — Multiple Choice Gap-Fill
+    {practice_task}
+
+    ## 3. Answer Key & Explanations
+    {answer_key}
+
+    ## 4. Student Performance
+    **Score: {mc_score} / 10**
+
+    **Strengths**
+    {for s in strengths}- {s}{end}
+
+    **Areas for Improvement**
+    {for i in improvements}- {i}{end}
+
+    **Recommendations**
+    {recommendations}
+
+    ---
+    {closing}
+
+  teacher_meta: |
+    ### Служебное (только для преподавателя)
+    Исходные ответы: {answers_raw}
+    Флаги: {flags}
+    Токены: {token_usage}
+    Хеш: {report_hash}
