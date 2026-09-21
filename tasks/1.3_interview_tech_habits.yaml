@@ -1,8 +1,3 @@
-=====================================================================
-Task #1.3: Technology Usage Habits Interview
-Version: 1.0
-=====================================================================
-
 meta:
   id: task_tech_habits_interview
   title: "Technology Usage Habits Interview"
@@ -22,9 +17,6 @@ settings:
     language: en
     min_words: 25
     russian_detect: "cyrillic > 30%"
-  timing:
-    remind_after_hours: 24
-    expire_after_days: 7
   attempts:
     max: 1
 
@@ -78,7 +70,6 @@ steps:
     topic: "Digital Detox & Future"
     say: "Do you ever practice a 'digital detox', and how do you imagine your relationship with technology changing in the next 5 years?"
     save_as: answers.q6
-    after_save_say: "Thank you! Give me a moment to review your answers."
     next: grade
 
   - id: grade
@@ -95,37 +86,15 @@ steps:
     on_check_fail: "retry 1 time"
     compute: "total = accuracy + fluency"
     save_as: grade
-    next: show_feedback
-
-  - id: show_feedback
-    type: message
-    template: templates.feedback
-    buttons: ["All clear", "I have a question"]
-    on_button:
-      "All clear": report
-      "I have a question": clarify
     next: report
-
-  - id: clarify
-    type: llm
-    model: yandexgpt-lite
-    temperature: 0.3
-    max_uses: 2
-    prompt: prompts.clarify
-    inputs: [grade, answers, student_question]
-    next: show_feedback_buttons_only
 
   - id: report
     type: llm
     model: yandexgpt-pro
     temperature: 0.2
     prompt: prompts.report
-    inputs: [student_context, answers, grade.errors, grade.improvements]
+    inputs: [student_context, answers, grade]
     output: schemas.report
-    checks:
-      - "corrected: exactly 6 items"
-      - "vocabulary: exactly 5 items"
-    on_check_fail: "retry 1 time"
     save_as: report
     next: deliver
 
@@ -135,7 +104,7 @@ steps:
       build_file: templates.final_md
       send_to_teacher: "final_md + teacher_meta"
       send_to_student: "final_md"
-      write_row: "results_table: student | task | accuracy | fluency | total | flags | date"
+      write_row: "results_table"
       update_profile: grade.profile_notes
     say: "Here is your report. Great work!"
     next: done
@@ -189,13 +158,6 @@ prompts:
     - profile_notes: отметь повторяющиеся ошибки и что улучшилось с прошлого задания
     - Весь фидбек на АНГЛИЙСКОМ
 
-  clarify: |
-    Ты доброжелательный репетитор. Студент получил оценку и задал вопрос.
-    Объясни коротко (до 80 слов), по-английски простым языком.
-    Оценка: {grade}
-    Ответы: {answers_numbered}
-    Вопрос студента: {student_question}
-
   report: |
     Ты экспертный тьютор. Сформируй финальный Markdown-отчет.
 
@@ -238,19 +200,6 @@ schemas:
     vocabulary: "[{{term, definition, example}}] — exactly 5 items"
 
 templates:
-  feedback: |
-    Accuracy: {accuracy}/20
-    Fluency: {fluency}/10
-    **Total Score: {total}/30**
-
-    Strengths:
-    {strengths}
-
-    Corrections:
-    {errors}
-
-    Is everything clear? Type "Yes!" to get your report.
-
   final_md: |
     # Digital Presentation: Tech Habits Interview Report
 
@@ -278,7 +227,7 @@ templates:
       *Example: {v.example}*{end}
 
     ---
-    {report.closing}
+    {closing}
 
   teacher_meta: |
     ### Служебное (только для преподавателя)
