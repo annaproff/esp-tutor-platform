@@ -30,6 +30,7 @@ client = OpenAI(
     base_url="https://llm.api.cloud.yandex.net/foundationModels/v1"
 )
 
+@st.cache_resource
 def get_db_connection():
     parsed = urlparse(SUPABASE_URI)
     return psycopg2.connect(
@@ -37,7 +38,8 @@ def get_db_connection():
         user=parsed.username,
         password=parsed.password,
         host=parsed.hostname,
-        port=parsed.port or 5432
+        port=parsed.port or 5432,
+        connect_timeout=5  # Добавляем таймаут, чтобы не висело вечно, если сеть сбоит
     )
 
 # ==========================================
