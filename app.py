@@ -14,7 +14,7 @@ import time
 # ==========================================
 # 1. НАСТРОЙКИ И ПОДКЛЮЧЕНИЯ
 # ==========================================
-st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="AI English Tutor", page_icon="", layout="wide")
 
 YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.environ.get("YANDEX_FOLDER_ID")
@@ -116,13 +116,13 @@ def validate_answer(answer, min_words=15, russian_threshold=0.3):
 # ==========================================
 # 3. РАБОТА С ПРОФИЛЕМ СТУДЕНТА
 # ==========================================
-def get_or_create_student(full_name, group_name):
+def get_or_create_student(full_name):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
         cur.execute(
-            "SELECT id, profile_json FROM students WHERE full_name = %s AND group_name = %s",
-            (full_name, group_name)
+            "SELECT id, profile_json FROM students WHERE full_name = %s",
+            (full_name,)
         )
         row = cur.fetchone()
         if row:
@@ -130,8 +130,8 @@ def get_or_create_student(full_name, group_name):
             profile = profile if isinstance(profile, dict) else {}
         else:
             cur.execute(
-                "INSERT INTO students (full_name, group_name) VALUES (%s, %s) RETURNING id",
-                (full_name, group_name)
+                "INSERT INTO students (full_name) VALUES (%s) RETURNING id",
+                (full_name,)
             )
             student_id = cur.fetchone()[0]
             profile = {}
@@ -182,13 +182,13 @@ def format_profile_for_prompt(profile):
         lines.append("- Academic vocabulary gaps: " + "; ".join(profile["academic_vocabulary_gaps"]))
     return "\n".join(lines)
 
-def check_attempts(full_name, group_name, task_id, max_attempts=1):
+def check_attempts(full_name, task_id, max_attempts=1):
     conn = get_db_connection()
     cur = conn.cursor()
     try:
         cur.execute(
-            "SELECT COUNT(*) FROM sessions WHERE full_name = %s AND group_name = %s AND task_id = %s AND status = 'completed'",
-            (full_name, group_name, task_id)
+            "SELECT COUNT(*) FROM sessions WHERE full_name = %s AND task_id = %s AND status = 'completed'",
+            (full_name, task_id)
         )
         count = cur.fetchone()[0]
         return count < max_attempts
@@ -379,19 +379,14 @@ if st.session_state.get("mode") == "student" and "student_name" not in st.sessio
     st.subheader("Вход для студента")
     with st.form("login_form"):
         fio = st.text_input("Фамилия и Имя (на русском)", placeholder="Иванов Иван")
-        group = st.text_input("Номер группы", placeholder="101")
         submitted = st.form_submit_button("Начать занятие")
         if submitted:
             if not is_valid_russian_name(fio):
                 st.error("Пожалуйста, введите Фамилию и Имя на русском языке.")
-            elif not group:
-                st.error("Пожалуйста, укажите номер группы.")
             else:
                 fio_clean = fio.strip()
-                group_clean = group.strip()
                 st.session_state.student_name = fio_clean
-                st.session_state.student_group = group_clean
-                student_id, profile = get_or_create_student(fio_clean, group_clean)
+                student_id, profile = get_or_create_student(fio_clean)
                 st.session_state.student_id = student_id
                 st.session_state.student_profile = profile
                 st.session_state.current_step_idx = 0
@@ -404,8 +399,7 @@ if st.session_state.get("mode") == "student" and "student_name" not in st.sessio
 
 elif st.session_state.get("mode") == "student" and "student_name" in st.session_state:
     with st.sidebar:
-        st.success(f" {st.session_state.student_name}")
-        st.caption(f"Группа: {st.session_state.student_group}")
+        st.success(f"👤 {st.session_state.student_name}")
         profile = st.session_state.get("student_profile", {})
         if profile:
             level = profile.get("estimated_level", "—")
@@ -451,7 +445,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
             st.stop()
 
         task_id = task_data.get("meta", {}).get("id", "unknown")
-        if not check_attempts(st.session_state.student_name, st.session_state.student_group, task_id, max_attempts):
+        if not check_attempts(st.session_state.student_name, task_id, max_attempts):
             st.error(f"Вы уже выполнили это задание (лимит: {max_attempts} попытка).")
             if st.button("Выбрать другое задание"):
                 del st.session_state.selected_task
@@ -484,11 +478,10 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                         cur = conn.cursor()
                         if st.session_state.session_id is None:
                             cur.execute("""
-                                INSERT INTO sessions (full_name, group_name, task_id, current_step, answers, flags)
-                                VALUES (%s, %s, %s, %s, %s, %s)
+                                INSERT INTO sessions (full_name, task_id, current_step, answers, flags)
+                                VALUES (%s, %s, %s, %s, %s)
                                 RETURNING id
-                            """, (st.session_state.student_name, st.session_state.student_group,
-                                  task_id, step_idx + 1,
+                            """, (st.session_state.student_name, task_id, step_idx + 1,
                                   json.dumps(st.session_state.answers, ensure_ascii=False),
                                   json.dumps(st.session_state.flags, ensure_ascii=False)))
                             st.session_state.session_id = cur.fetchone()[0]
@@ -655,7 +648,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
 # ==========================================
 elif st.session_state.get("mode") == "admin":
     if "admin_auth" not in st.session_state:
-        st.subheader("🔒 Вход для преподавателя")
+        st.subheader(" Вход для преподавателя")
         pwd = st.text_input("Введите пароль администратора", type="password")
         if st.button("Войти"):
             if pwd == ADMIN_PASSWORD:
@@ -664,14 +657,14 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Неверный пароль")
     else:
-        st.title("👩‍ Панель преподавателя (Дашборд)")
+        st.title("👩‍🏫 Панель преподавателя (Дашборд)")
         if st.button("Выйти из админки"):
             del st.session_state.admin_auth
             st.rerun()
         try:
             conn = get_db_connection()
             df = pd.read_sql("""
-                SELECT id, full_name, group_name, task_id,
+                SELECT id, full_name, task_id,
                        (grade_json->>'accuracy')::int as accuracy,
                        (grade_json->>'fluency')::int as fluency,
                        (grade_json->>'mc_score')::int as mc_score,
@@ -681,13 +674,13 @@ elif st.session_state.get("mode") == "admin":
                        (grade_json->>'grammar')::int as grammar,
                        (grade_json->>'total')::int as total,
                        status, flags, token_usage, report_hash, answers, created_at, completed_at
-                FROM sessions ORDER BY group_name, full_name, created_at
+                FROM sessions ORDER BY full_name, created_at
             """, conn)
             conn.close()
             if df.empty:
                 st.info("Пока нет данных от студентов.")
             else:
-                st.subheader(" Сводная таблица (Pivot)")
+                st.subheader("📊 Сводная таблица (Pivot)")
                 if 'total' in df.columns and df['total'].notna().any():
                     pivot_values = 'total'
                 elif 'mc_score' in df.columns and df['mc_score'].notna().any():
@@ -701,13 +694,13 @@ elif st.session_state.get("mode") == "admin":
                     )
                     pivot_values = 'essay_total'
                 
-                pivot = df.pivot_table(index=['full_name', 'group_name'], columns='task_id', values=pivot_values, aggfunc='first')
+                pivot = df.pivot_table(index=['full_name'], columns='task_id', values=pivot_values, aggfunc='first')
                 st.dataframe(pivot.fillna("—"), use_container_width=True)
                 
                 st.markdown("---")
                 st.subheader("🔍 Детальный просмотр сессий")
                 for idx, row in df.iterrows():
-                    with st.expander(f"{row['full_name']} ({row['group_name']}) - {row['task_id']} - {row['status']}"):
+                    with st.expander(f"{row['full_name']} - {row['task_id']} - {row['status']}"):
                         col1, col2 = st.columns(2)
                         with col1:
                             if row['accuracy'] is not None:
