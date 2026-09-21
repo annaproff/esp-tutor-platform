@@ -113,9 +113,6 @@ def validate_answer(answer, min_words=15, russian_threshold=0.3):
         flags.append("fast_answer")
     return flags, warnings
 
-# ==========================================
-# 3. РАБОТА С ПРОФИЛЕМ СТУДЕНТА
-# ==========================================
 def get_or_create_student(full_name, group_name):
     conn = get_db_connection()
     cur = conn.cursor()
@@ -190,15 +187,155 @@ def check_attempts(full_name, group_name, task_id, max_attempts=1):
         cur.close()
         conn.close()
 
+def format_prompt_with_context(prompt_template, context_dict):
+    """Форматирует промпт, подставляя переменные из контекста."""
+    try:
+        return prompt_template.format(**context_dict)
+    except KeyError as e:
+        st.warning(f"Missing variable in prompt: {e}")
+        return prompt_template
+
+# ==========================================
+# 3. ОБРАБОТЧИКИ ШАГОВ
+# ==========================================
+def render_gate_step(step):
+    """Рендерит стартовый шаг с кнопкой."""
+    st.markdown(step.get("say", ""))
+    if st.button(step.get("buttons", ["Start"])[0], type="primary"):
+        return True
+    return False
+
+def render_question_step(step, min_words=15):
+    """Рендерит вопрос с текстовым полем."""
+    st.markdown(f"**{step.get('topic', '')}**")
+    st.write(step.get("say"))
+    user_answer = st.text_area("Ваш ответ (на английском):", height=150, key=f"answer_{step['id']}")
+    
+    if st.button("Отправить ответ", type="primary"):
+        flags, warnings = validate_answer(user_answer, min_words=min_words)
+        if warnings:
+            for w in warnings:
+                st.warning(w)
+            if st.button("Всё равно отправить", key="force_send"):
+                return user_answer, flags
+        else:
+            return user_answer, []
+    return None, []
+
+def render_multiple_choice_step(step):
+    """Рендерит вопрос с множественным выбором."""
+    st.markdown(f"**{step.get('topic', '')}**")
+    st.write(step.get("question"))
+    
+    options = step.get("options", {})
+    option_labels = list(options.keys())
+    option_values = list(options.values())
+    
+    selected = st.radio("Выберите ответ:", option_labels, key=f"mc_{step['id']}")
+    
+    if st.button("Отправить ответ", type="primary"):
+        selected_value = options[selected]
+        correct_value = step.get("correct")
+        is_correct = selected_value == correct_value
+        return {
+            "selected": selected_value,
+            "correct": correct_value,
+            "is_correct": is_correct
+        }
+    return None
+
+def render_matching_step(step):
+    """Рендерит задание на сопоставление."""
+    st.write(step.get("say"))
+    
+    correct_mapping = step.get("correct", {})
+    terms = list(correct_mapping.keys())
+    definitions = list(correct_mapping.values())
+    
+    st.markdown("**Термины:**")
+    for i, term in enumerate(terms, 1):
+        st.write(f"{i}. {term}")
+    
+    st.markdown("**Определения:**")
+    for letter, definition in zip("ABCDEFGH", definitions):
+        st.write(f"{letter}. {definition}")
+    
+    user_mapping = {}
+    for term in terms:
+        user_mapping[term] = st.selectbox(
+            f"Сопоставьте: {term}",
+            [""] + list("ABCDEFGH"),
+            key=f"match_{step['id']}_{term}"
+        )
+    
+    if st.button("Отправить ответы", type="primary"):
+        results = {}
+        for term, user_answer in user_mapping.items():
+            correct_answer = correct_mapping[term]
+            results[term] = {
+                "user_answer": user_answer,
+                "correct_answer": correct_answer,
+                "is_correct": user_answer == correct_answer
+            }
+        return results
+    return None
+
+def render_llm_step(step, task_data, answers, profile, student_context):
+    """Вызывает LLM для промежуточного шага (например, feedback на план)."""
+    prompt_template = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
+    
+    # Формируем контекст для промпта
+    context = {
+        "student_context": student_context,
+        "profile_block": format_profile_for_prompt(profile),
+        "answers": answers,
+    }
+    
+    # Добавляем конкретные ответы
+    for key, value in answers.items():
+        context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    
+    prompt = format_prompt_with_context(prompt_template, context)
+    
+    st.markdown("Нейросеть анализирует... ⏳")
+    try:
+        response, tokens = call_llm_with_retry(
+            prompt,
+            max_retries=2,
+            temperature=step.get("temperature", 0.2)
+        )
+        
+        # Пытаемся распарсить JSON
+        try:
+            result = extract_json_with_retry(response, prompt_for_retry=prompt, max_retries=1)
+            return result, tokens
+        except:
+            return {"raw_response": response}, tokens
+    except Exception as e:
+        return {"error": str(e)}, {"total_tokens": 0}
+
+def render_message_step(step):
+    """Рендерит сообщение с кнопками."""
+    st.markdown(step.get("say", ""))
+    buttons = step.get("buttons", ["Continue"])
+    
+    clicked = None
+    for btn in buttons:
+        if st.button(btn, key=f"msg_{step['id']}_{btn}"):
+            clicked = btn
+            break
+    
+    return clicked
+
 # ==========================================
 # 4. ВХОД
 # ==========================================
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title(" Добро пожаловать в AI Tutor Platform")
+    st.title("🎓 Добро пожаловать в AI Tutor Platform")
     st.markdown("Выберите режим входа:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(" Я студент", use_container_width=True):
+        if st.button("🎓 Я студент", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
@@ -228,16 +365,17 @@ if st.session_state.get("mode") == "student" and "student_name" not in st.sessio
                 student_id, profile = get_or_create_student(fio_clean, group_clean)
                 st.session_state.student_id = student_id
                 st.session_state.student_profile = profile
-                st.session_state.current_step = 0
+                st.session_state.current_step_idx = 0
                 st.session_state.answers = {}
                 st.session_state.flags = []
                 st.session_state.token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 st.session_state.session_id = None
+                st.session_state.llm_results = {}
                 st.rerun()
 
 elif st.session_state.get("mode") == "student" and "student_name" in st.session_state:
     with st.sidebar:
-        st.success(f" {st.session_state.student_name}")
+        st.success(f"👤 {st.session_state.student_name}")
         st.caption(f"Группа: {st.session_state.student_group}")
         profile = st.session_state.get("student_profile", {})
         if profile:
@@ -275,7 +413,6 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
             with open(TASK_FILE_PATH, "r", encoding="utf-8") as f:
                 task_data = yaml.safe_load(f)
             steps = task_data.get("steps", [])
-            question_steps = [s for s in steps if s.get("type") == "question"]
             settings = task_data.get("settings", {}).get("answers", {})
             min_words = settings.get("min_words", 15)
             max_attempts = task_data.get("settings", {}).get("attempts", {}).get("max", 1)
@@ -294,74 +431,48 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
         st.title(f"Задание: {task_data.get('meta', {}).get('title', 'Interview')}")
         st.markdown("---")
 
-        step_idx = st.session_state.get("current_step", 0)
-
-        if step_idx < len(question_steps):
-            current_q = question_steps[step_idx]
-            st.subheader(f"Вопрос {step_idx + 1} из {len(question_steps)}")
-            st.markdown(f"**{current_q.get('topic', '')}**")
-            st.write(current_q.get("say"))
-            user_answer = st.text_area("Ваш ответ (на английском):", height=150, key=f"answer_{step_idx}")
-
-            if st.button("Отправить ответ", type="primary"):
-                flags, warnings = validate_answer(user_answer, min_words=min_words)
-                if warnings:
-                    for w in warnings:
-                        st.warning(w)
-                    if st.button("Всё равно отправить", key="force_send"):
-                        st.session_state.flags.extend(flags)
-                        st.session_state.answers[current_q["id"]] = user_answer
-                        st.session_state.current_step = step_idx + 1
-                        try:
-                            conn = get_db_connection()
-                            cur = conn.cursor()
-                            if st.session_state.session_id is None:
-                                cur.execute("""
-                                    INSERT INTO sessions (full_name, group_name, task_id, current_step, answers, flags)
-                                    VALUES (%s, %s, %s, %s, %s, %s)
-                                    RETURNING id
-                                """, (st.session_state.student_name, st.session_state.student_group,
-                                      task_id, step_idx + 1,
-                                      json.dumps(st.session_state.answers, ensure_ascii=False),
-                                      json.dumps(st.session_state.flags, ensure_ascii=False)))
-                                st.session_state.session_id = cur.fetchone()[0]
-                            else:
-                                cur.execute("""
-                                    UPDATE sessions
-                                    SET current_step = %s, answers = %s, flags = %s
-                                    WHERE id = %s
-                                """, (step_idx + 1,
-                                      json.dumps(st.session_state.answers, ensure_ascii=False),
-                                      json.dumps(st.session_state.flags, ensure_ascii=False),
-                                      st.session_state.session_id))
-                            conn.commit()
-                            cur.close()
-                            conn.close()
-                        except Exception as e:
-                            st.error(f"Ошибка БД: {e}")
-                        st.rerun()
-                else:
-                    st.session_state.answers[current_q["id"]] = user_answer
-                    st.session_state.current_step = step_idx + 1
+        # Универсальная обработка шагов
+        step_idx = st.session_state.get("current_step_idx", 0)
+        
+        if step_idx < len(steps):
+            current_step = steps[step_idx]
+            step_type = current_step.get("type", "question")
+            
+            # Обработка разных типов шагов
+            if step_type == "gate":
+                if render_gate_step(current_step):
+                    st.session_state.current_step_idx = step_idx + 1
+                    st.rerun()
+            
+            elif step_type == "question":
+                answer, flags = render_question_step(current_step, min_words=min_words)
+                if answer is not None:
+                    st.session_state.answers[current_step["id"]] = answer
+                    st.session_state.flags.extend(flags)
+                    st.session_state.current_step_idx = step_idx + 1
+                    
+                    # Сохраняем в БД
                     try:
                         conn = get_db_connection()
                         cur = conn.cursor()
                         if st.session_state.session_id is None:
                             cur.execute("""
-                                INSERT INTO sessions (full_name, group_name, task_id, current_step, answers)
-                                VALUES (%s, %s, %s, %s, %s)
+                                INSERT INTO sessions (full_name, group_name, task_id, current_step, answers, flags)
+                                VALUES (%s, %s, %s, %s, %s, %s)
                                 RETURNING id
                             """, (st.session_state.student_name, st.session_state.student_group,
                                   task_id, step_idx + 1,
-                                  json.dumps(st.session_state.answers, ensure_ascii=False)))
+                                  json.dumps(st.session_state.answers, ensure_ascii=False),
+                                  json.dumps(st.session_state.flags, ensure_ascii=False)))
                             st.session_state.session_id = cur.fetchone()[0]
                         else:
                             cur.execute("""
                                 UPDATE sessions
-                                SET current_step = %s, answers = %s
+                                SET current_step = %s, answers = %s, flags = %s
                                 WHERE id = %s
                             """, (step_idx + 1,
                                   json.dumps(st.session_state.answers, ensure_ascii=False),
+                                  json.dumps(st.session_state.flags, ensure_ascii=False),
                                   st.session_state.session_id))
                         conn.commit()
                         cur.close()
@@ -369,103 +480,81 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     except Exception as e:
                         st.error(f"Ошибка БД: {e}")
                     st.rerun()
-        else:
-            st.subheader("Отлично! Вы ответили на все вопросы.")
-            answers_text = "\n".join([f"{i+1}. {ans}" for i, ans in enumerate(st.session_state.answers.values())])
-
-            if "grade_data" not in st.session_state:
-                st.markdown("Нейросеть анализирует ваши ответы... ⏳")
-                profile_block = format_profile_for_prompt(st.session_state.get("student_profile", {}))
-                grade_prompt_template = task_data.get("prompts", {}).get("grade", "")
-                grade_prompt = grade_prompt_template.format(
-                    answers_numbered=answers_text,
-                    profile_block=profile_block
-                )
-                try:
-                    llm_response, tokens = call_llm_with_retry(grade_prompt, max_retries=2, temperature=0.2)
-                    st.session_state.token_usage["prompt_tokens"] += tokens["prompt_tokens"]
-                    st.session_state.token_usage["completion_tokens"] += tokens["completion_tokens"]
-                    st.session_state.token_usage["total_tokens"] += tokens["total_tokens"]
-                    grade_data = extract_json_with_retry(llm_response, prompt_for_retry=grade_prompt, max_retries=1)
-                    st.session_state.grade_data = grade_data
-                except Exception as e:
-                    st.session_state.grade_data = {"error": str(e)}
-                st.rerun()
-            elif "clarify_mode" not in st.session_state and "final_report" not in st.session_state:
-                grade = st.session_state.grade_data
-                if "error" in grade:
-                    st.error(f"Ошибка LLM: {grade['error']}")
-                else:
-                    st.success("Оценка завершена!")
-                    col1, col2, col3 = st.columns(3)
-                    col1.metric("Accuracy", f"{grade.get('accuracy', 0)}/20")
-                    col2.metric("Fluency", f"{grade.get('fluency', 0)}/10")
-                    col3.metric("Total", f"{grade.get('total', 0)}/30")
-                    strengths = "\n".join([f"• {s}" for s in grade.get("strengths", [])])
-                    improvements = "\n".join([f"• {imp}" for imp in grade.get("improvements", [])])
-                    errors = "\n".join([f"• ❌ *{e.get('original', '')}* → ✅ {e.get('corrected', '')}\n  _{e.get('explanation', '')}_"
-                                       for e in grade.get("errors", [])])
-                    st.markdown(f"**Strengths:**\n{strengths}")
-                    st.markdown(f"**Areas for Improvement:**\n{improvements}")
-                    st.markdown(f"**Corrections:**\n{errors}")
-                    st.markdown("---")
-                    st.markdown("Всё ли понятно?")
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        if st.button("Да, получить отчет", type="primary"):
-                            st.session_state.clarify_mode = False
-                            st.rerun()
-                    with col_b:
-                        if st.button("У меня есть вопрос"):
-                            st.session_state.clarify_mode = True
-                            st.rerun()
-            elif st.session_state.get("clarify_mode") and "final_report" not in st.session_state:
-                st.subheader("Задайте ваш вопрос:")
-                student_question = st.text_area("Ваш вопрос:", height=100)
-                if st.button("Отправить вопрос"):
-                    clarify_prompt = f"""Ты доброжелательный репетитор. Студент получил оценку и задал вопрос.
-Объясни коротко (до 80 слов), по-английски простым языком.
-Оценка: {json.dumps(st.session_state.grade_data, ensure_ascii=False)}
-Ответы: {answers_text}
-Вопрос студента: {student_question}"""
-                    try:
-                        clarify_response, _ = call_llm_with_retry(clarify_prompt, max_retries=1, temperature=0.3)
-                        st.success("Ответ на ваш вопрос:")
-                        st.markdown(clarify_response)
-                        st.session_state.clarify_mode = False
-                    except Exception as e:
-                        st.error(f"Ошибка: {e}")
-                if st.button("Всё понятно, получить отчет"):
-                    st.session_state.clarify_mode = False
+            
+            elif step_type == "multiple_choice":
+                result = render_multiple_choice_step(current_step)
+                if result is not None:
+                    st.session_state.answers[current_step["id"]] = result
+                    st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
-            elif "final_report" not in st.session_state:
-                grade = st.session_state.grade_data
-                st.markdown("Генерируем итоговый отчет... ⏳")
-                report_prompt_template = task_data.get("prompts", {}).get("report", "")
-                report_prompt = report_prompt_template.format(
-                    answers_numbered=answers_text,
-                    grade_json=json.dumps(grade, ensure_ascii=False),
-                    accuracy=grade.get("accuracy", 0),
-                    fluency=grade.get("fluency", 0),
-                    total=grade.get("total", 0),
-                    strengths="\n".join([f"• {s}" for s in grade.get("strengths", [])]),
-                    improvements="\n".join([f"• {imp}" for imp in grade.get("improvements", [])])
+            
+            elif step_type == "matching":
+                result = render_matching_step(current_step)
+                if result is not None:
+                    st.session_state.answers[current_step["id"]] = result
+                    st.session_state.current_step_idx = step_idx + 1
+                    st.rerun()
+            
+            elif step_type == "llm":
+                # Вызов LLM для промежуточного шага
+                student_context = task_data.get("student_context", {})
+                result, tokens = render_llm_step(
+                    current_step, task_data, st.session_state.answers,
+                    st.session_state.get("student_profile", {}), student_context
                 )
+                st.session_state.llm_results[current_step["id"]] = result
+                st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
+                st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
+                st.session_state.token_usage["total_tokens"] += tokens.get("total_tokens", 0)
+                st.session_state.current_step_idx = step_idx + 1
+                st.rerun()
+            
+            elif step_type == "message":
+                clicked = render_message_step(current_step)
+                if clicked:
+                    st.session_state.answers[current_step["id"]] = clicked
+                    st.session_state.current_step_idx = step_idx + 1
+                    st.rerun()
+            
+            elif step_type == "action":
+                # Финальное действие
+                st.success("Задание завершено! Формируем отчет...")
+                # Здесь будет логика генерации финального отчета
+                st.session_state.current_step_idx = step_idx + 1
+                st.rerun()
+        else:
+            # Все шаги пройдены - генерируем финальный отчет
+            st.subheader("Отлично! Все шаги пройдены.")
+            
+            if "final_report" not in st.session_state:
+                st.markdown("Генерируем итоговый отчет... ")
+                
+                # Формируем промпт для финального отчета
+                report_prompt_template = task_data.get("prompts", {}).get("report", "")
+                student_context = task_data.get("student_context", {})
+                
+                context = {
+                    "student_context": student_context,
+                    "profile_block": format_profile_for_prompt(st.session_state.get("student_profile", {})),
+                    "answers": st.session_state.answers,
+                    "grade": st.session_state.llm_results.get("grade", {}),
+                }
+                
+                # Добавляем все ответы и результаты LLM
+                for key, value in st.session_state.answers.items():
+                    context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+                for key, value in st.session_state.llm_results.items():
+                    context[key] = json.dumps(value, ensure_ascii=False)
+                
+                report_prompt = format_prompt_with_context(report_prompt_template, context)
+                
                 try:
                     report_md, tokens = call_llm_with_retry(report_prompt, max_retries=1, temperature=0.2)
                     st.session_state.token_usage["prompt_tokens"] += tokens["prompt_tokens"]
                     st.session_state.token_usage["completion_tokens"] += tokens["completion_tokens"]
                     st.session_state.token_usage["total_tokens"] += tokens["total_tokens"]
                     report_hash = compute_sha256(report_md)
-                    teacher_meta = f"""
----
-### Teacher Meta (скрыто от студента)
-- **Flags:** {', '.join(st.session_state.flags) if st.session_state.flags else 'none'}
-- **Token usage:** {st.session_state.token_usage['total_tokens']}
-- **Report hash:** {report_hash}
-- **Completed at:** {datetime.now().isoformat()}
-"""
-                    st.session_state.final_report = report_md + teacher_meta
+                    st.session_state.final_report = report_md
                     st.session_state.report_hash = report_hash
                 except Exception as e:
                     st.session_state.final_report = f"Ошибка генерации отчета: {e}"
@@ -473,13 +562,15 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 st.rerun()
             else:
                 st.success("Отчет готов!")
-                st.markdown(st.session_state.final_report.split("---")[0])
+                st.markdown(st.session_state.final_report)
                 st.download_button(
                     "Скачать отчет (Markdown)",
-                    st.session_state.final_report.split("---")[0],
+                    st.session_state.final_report,
                     file_name=f"report_{st.session_state.student_name.replace(' ', '_')}.md",
                     mime="text/markdown"
                 )
+                
+                # Сохраняем в БД
                 try:
                     conn = get_db_connection()
                     cur = conn.cursor()
@@ -493,7 +584,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                             completed_at = NOW()
                         WHERE id = %s
                     """, (
-                        json.dumps(st.session_state.grade_data, ensure_ascii=False),
+                        json.dumps(st.session_state.llm_results.get("grade", {}), ensure_ascii=False),
                         st.session_state.report_hash,
                         st.session_state.token_usage["total_tokens"],
                         json.dumps(st.session_state.answers, ensure_ascii=False),
@@ -502,7 +593,9 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     conn.commit()
                     cur.close()
                     conn.close()
-                    profile_notes = st.session_state.grade_data.get("profile_notes", {})
+                    
+                    # Сохраняем профиль
+                    profile_notes = st.session_state.llm_results.get("grade", {}).get("profile_notes", {})
                     if profile_notes:
                         save_student_profile(st.session_state.student_id, profile_notes)
                         st.session_state.student_profile.update(profile_notes)
@@ -524,7 +617,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Неверный пароль")
     else:
-        st.title("👩‍🏫 Панель преподавателя (Дашборд)")
+        st.title("👩‍ Панель преподавателя (Дашборд)")
         if st.button("Выйти из админки"):
             del st.session_state.admin_auth
             st.rerun()
@@ -542,11 +635,11 @@ elif st.session_state.get("mode") == "admin":
             if df.empty:
                 st.info("Пока нет данных от студентов.")
             else:
-                st.subheader("📊 Сводная таблица (Pivot)")
+                st.subheader(" Сводная таблица (Pivot)")
                 pivot = df.pivot_table(index=['full_name', 'group_name'], columns='task_id', values='total', aggfunc='first')
                 st.dataframe(pivot.fillna("—"), use_container_width=True)
                 st.markdown("---")
-                st.subheader("🔍 Детальный просмотр сессий")
+                st.subheader(" Детальный просмотр сессий")
                 for idx, row in df.iterrows():
                     with st.expander(f"{row['full_name']} ({row['group_name']}) - {row['task_id']} - {row['status']}"):
                         col1, col2 = st.columns(2)
@@ -561,7 +654,7 @@ elif st.session_state.get("mode") == "admin":
                             st.write(f"**Хеш отчета:** `{row['report_hash'][:16]}...`" if row['report_hash'] else "Нет хеша")
                         st.write(f"**Начато:** {row['created_at']}")
                         st.write(f"**Завершено:** {row['completed_at']}")
-                        st.markdown("** Сырые ответы студента:**")
+                        st.markdown("**📝 Сырые ответы студента:**")
                         try:
                             answers = json.loads(row['answers']) if row['answers'] else {}
                             for q_id, answer in answers.items():
