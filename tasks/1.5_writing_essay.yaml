@@ -1,23 +1,14 @@
-=====================================================================
-Task #1.5: Academic Writing — Negative Sampling Explained
-Version: 1.0
-Source: Mikolov et al., 2013
-=====================================================================
-
 meta:
   id: task_writing_essay
   title: "Academic Writing — Negative Sampling Explained"
   max_score: 20
   llm_calls: 3
   est_tokens: "15-18k"
-  est_cost_rub: "12-18"
-  source_article: "https://arxiv.org/abs/1310.4546"
 
 student_context:
   major: mathematics
   level: "B1-B2"
   topic: "Negative Sampling, Logistic Regression, Probability"
-  target_audience: "first-year math student who knows nothing about NLP"
 
 settings:
   answers:
@@ -184,42 +175,28 @@ rubric:
 prompts:
   plan_feedback: |
     Ты экспертный тьютор по академическому письму. Оцени план эссе студента.
-
     КОНТЕКСТ: {student_context}
-
-    ПЛАН СТУДЕНТА:
-    {structure_planning}
-
-    Дай краткий фидбек (3-4 предложения):
-    - Что хорошо
-    - Что можно добавить или убрать
-    - Предложи 3-4 полезные академические фразы для начала эссе
-
+    ПЛАН СТУДЕНТА: {structure_planning}
+    Дай краткий фидбек (3-4 предложения): что хорошо, что можно добавить или убрать.
+    Предложи 3-4 полезные академические фразы для начала эссе.
     Верни СТРОГО JSON без markdown:
     {{
-      "feedback": "str (3-4 sentences)",
+      "feedback": "str",
       "suggested_phrases": ["...", "...", "...", "..."],
       "recommendations": ["...", "..."]
     }}
 
   feedback_revision: |
     Ты экспертный тьютор по академическому письму. Оцени первый черновик эссе студента.
-
     {profile_block}
-
     КОНТЕКСТ: {student_context}
-    ЗАДАНИЕ: Write a short essay (150-200 words) explaining Negative Sampling
-    to a first-year math student using logistic regression and probability.
-
-    ПЕРВЫЙ ЧЕРНОВИК:
-    {first_draft}
-
+    ЗАДАНИЕ: Write a short essay (150-200 words) explaining Negative Sampling to a first-year math student using logistic regression and probability.
+    ПЕРВЫЙ ЧЕРНОВИК: {first_draft}
     Оценивай по 4 критериям (каждый 0-5 баллов):
-    1. Task Achievement: полнота раскрытия темы, упоминание logistic regression и probability
-    2. Coherence & Cohesion: логика структуры, использование связок
-    3. Lexical Resource: академическая лексика, отсутствие калек с русского
-    4. Grammatical Range & Accuracy: разнообразие структур (пассив, условные, причастные обороты)
-
+    1. Task Achievement
+    2. Coherence & Cohesion
+    3. Lexical Resource
+    4. Grammatical Range & Accuracy
     Верни СТРОГО JSON без markdown:
     {{
       "task_achievement": <int 0-5>,
@@ -230,7 +207,7 @@ prompts:
       "strengths": ["...", "..."],
       "improvements": ["...", "...", "..."],
       "specific_errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
-      "alternative_intro_or_conclusion": "str (1-2 sentences)",
+      "alternative_intro_or_conclusion": "str",
       "profile_notes": {{
         "recurring_errors": ["..."],
         "resolved_since_last": ["..."],
@@ -239,28 +216,13 @@ prompts:
       }}
     }}
 
-    Правила:
-    - improvements: 3-4 пункта с примерами из текста
-    - specific_errors: 2-3 пункта
-    - alternative_intro_or_conclusion: 1 вариант для вдохновения
-    - profile_notes: отметь прогресс в академическом письме
-    - Весь фидбек на АНГЛИЙСКОМ
-
   final_check: |
     Ты экспертный тьютор. Оцени финальный черновик эссе студента и сравни с первым.
-
-    ПЕРВЫЙ ЧЕРНОВИК:
-    {first_draft}
-
-    ФИНАЛЬНЫЙ ЧЕРНОВИК:
-    {final_draft}
-
-    ПРЕДЫДУЩАЯ ОЦЕНКА:
-    {feedback_revision}
-
+    ПЕРВЫЙ ЧЕРНОВИК: {first_draft}
+    ФИНАЛЬНЫЙ ЧЕРНОВИК: {final_draft}
+    ПРЕДЫДУЩАЯ ОЦЕНКА: {feedback_revision}
     Оцени финальный черновик по тем же 4 критериям (0-5 каждый).
     Покажи прогресс: что стало лучше по сравнению с первым черновиком.
-
     Верни СТРОГО JSON без markdown:
     {{
       "task_achievement": <int 0-5>,
@@ -280,69 +242,45 @@ prompts:
 
   report: |
     Ты экспертный тьютор. Сформируй Digital Presentation по академическому эссе.
-
     ИСХОДНАЯ СТАТЬЯ: https://arxiv.org/abs/1310.4546
-
-    ЗАДАНИЕ: Write a short essay (150-200 words) explaining Negative Sampling
-    to a first-year math student using logistic regression and probability.
-
-    ПЛАН СТУДЕНТА:
-    {structure_planning}
-
-    ПЕРВЫЙ ЧЕРНОВИК:
-    {first_draft}
-
-    ФИНАЛЬНЫЙ ЧЕРНОВИК:
-    {final_draft}
-
-    ОТВЕТЫ НА SELF-ASSESSMENT:
-    {self_assessment}
-
-    ОЦЕНКА ПЕРВОГО ЧЕРНОВИКА:
-    {feedback_revision}
-
-    ОЦЕНКА ФИНАЛЬНОГО ЧЕРНОВИКА:
-    {final_check}
-
-    Сформируй Markdown-отчет:
-
+    ЗАДАНИЕ: Write a short essay (150-200 words) explaining Negative Sampling to a first-year math student using logistic regression and probability.
+    ПЛАН СТУДЕНТА: {structure_planning}
+    ПЕРВЫЙ ЧЕРНОВИК: {first_draft}
+    ФИНАЛЬНЫЙ ЧЕРНОВИК: {final_draft}
+    ОТВЕТЫ НА SELF-ASSESSMENT: {final_draft}
+    ОЦЕНКА ПЕРВОГО ЧЕРНОВИКА: {feedback_revision}
+    ОЦЕНКА ФИНАЛЬНОГО ЧЕРНОВИКА: {final_check}
+    Сформируй Markdown-отчет со следующими разделами:
     ## 1. Source Material
     Название статьи и активная ссылка.
-
     ## 2. Writing Task
     Формулировка задания.
-
     ## 3. Essay Plan
     Структура эссе с тезисами студента.
-
     ## 4. First Draft & Feedback
     Первый черновик + таблица с оценками по 4 критериям + рекомендации.
-
     ## 5. Final Revised Essay
     Финальная версия эссе.
-
     ## 6. Progress & Reflection
     Сравнение первого и финального черновика + ответы на self-assessment.
-
     ## 7. Useful Academic Phrases
     Список из 8-10 фраз для академического письма по теме CS/математики.
-
     Output ONLY the Markdown.
 
 schemas:
   plan_feedback:
-    feedback: "str (3-4 sentences)"
-    suggested_phrases: "[str] — 3-4 items"
-    recommendations: "[str] — 2-3 items"
+    feedback: "str"
+    suggested_phrases: "[str]"
+    recommendations: "[str]"
   feedback_revision:
     task_achievement: "int 0..5"
     coherence: "int 0..5"
     lexical_resource: "int 0..5"
     grammar: "int 0..5"
     total: "int 0..20"
-    strengths: "[str] — 2-3 items"
-    improvements: "[str] — 3-4 items"
-    specific_errors: "[{{original, corrected, explanation}}] — 2-3 items"
+    strengths: "[str]"
+    improvements: "[str]"
+    specific_errors: "[{{original, corrected, explanation}}]"
     alternative_intro_or_conclusion: "str"
     profile_notes:
       recurring_errors: "[str]"
@@ -355,8 +293,8 @@ schemas:
     lexical_resource: "int 0..5"
     grammar: "int 0..5"
     total: "int 0..20"
-    progress: "[str] — 2-3 items"
-    remaining_issues: "[str] — 1-2 items"
+    progress: "[str]"
+    remaining_issues: "[str]"
     profile_notes:
       recurring_errors: "[str]"
       resolved_since_last: "[str]"
@@ -370,29 +308,23 @@ schemas:
     first_draft_feedback: "str"
     final_draft: "str"
     progress_reflection: "str"
-    useful_phrases: "[str] — 8-10 items"
+    useful_phrases: "[str]"
 
 templates:
   final_md: |
     # Digital Presentation: Academic Writing — Negative Sampling Explained
-
     Student: {student_name} · Date: {date}
-
     ## 1. Source Material
     **Distributed Representations of Words and Phrases and their Compositionality**
     Mikolov et al., 2013
     [Link to arXiv](https://arxiv.org/abs/1310.4546)
-
     ## 2. Writing Task
     {writing_task}
-
     ## 3. Essay Plan
     {essay_plan}
-
     ## 4. First Draft & Feedback
     **First Draft:**
     {first_draft}
-
     **Feedback:**
     | Criterion | Score | Max |
     |-----------|-------|-----|
@@ -401,23 +333,17 @@ templates:
     | Lexical Resource | {first_lexical} | 5 |
     | Grammatical Range & Accuracy | {first_grammar} | 5 |
     | **Total** | **{first_total}** | **20** |
-
     **Recommendations:**
     {for r in first_recommendations}- {r}{end}
-
     ## 5. Final Revised Essay
     {final_draft}
-
     ## 6. Progress & Reflection
     **Progress:**
     {for p in progress}- {p}{end}
-
     **Self-Assessment:**
     {self_assessment}
-
     ## 7. Useful Academic Phrases
     {for p in useful_phrases}- {p}{end}
-
     ---
     {closing}
 
