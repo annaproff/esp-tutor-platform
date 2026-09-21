@@ -1,0 +1,429 @@
+=====================================================================
+Task #1.5: Academic Writing — Negative Sampling Explained
+Version: 1.0
+Source: Mikolov et al., 2013
+=====================================================================
+
+meta:
+  id: task_writing_essay
+  title: "Academic Writing — Negative Sampling Explained"
+  max_score: 20
+  llm_calls: 3
+  est_tokens: "15-18k"
+  est_cost_rub: "12-18"
+  source_article: "https://arxiv.org/abs/1310.4546"
+
+student_context:
+  major: mathematics
+  level: "B1-B2"
+  topic: "Negative Sampling, Logistic Regression, Probability"
+  target_audience: "first-year math student who knows nothing about NLP"
+
+settings:
+  answers:
+    language: en
+    min_words: 20
+    russian_detect: "cyrillic > 30%"
+  attempts:
+    max: 1
+
+steps:
+  - id: start
+    type: gate
+    say: |
+      Hi! This task is about academic writing. You'll write a short essay
+      (150-200 words) explaining Negative Sampling to a first-year math student.
+      Press Start when you're ready.
+    buttons: ["Start"]
+    next: concept_activation
+
+  - id: concept_activation
+    type: question
+    topic: "Concept Activation"
+    say: |
+      Answer briefly (in English or Russian):
+      1. In your own words, what is the main problem that Negative Sampling solves in the Skip-gram model?
+      2. How would you explain logistic regression to a friend in one sentence?
+      3. What is the key difference between Negative Sampling and Noise Contrastive Estimation (NCE)?
+    save_as: answers.concept_activation
+    next: structure_planning
+
+  - id: structure_planning
+    type: question
+    topic: "Structure Planning"
+    say: |
+      Here's the essay structure. Fill each part with 1-2 key ideas (bullet points are fine):
+
+      **Essay Structure:**
+      1. **Introduction (1-2 sentences):** Hook + what Negative Sampling is and why it matters.
+      2. **The Problem (2-3 sentences):** Why the standard softmax is computationally expensive.
+      3. **The Solution (4-5 sentences):** How Negative Sampling works — logistic regression perspective, positive vs. negative examples.
+      4. **Conclusion (1-2 sentences):** Why this matters for training word embeddings efficiently.
+
+      Write your plan:
+    save_as: answers.structure_planning
+    next: plan_feedback
+
+  - id: plan_feedback
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0.3
+    prompt: prompts.plan_feedback
+    inputs: [student_context, answers]
+    output: schemas.plan_feedback
+    save_as: plan_feedback
+    next: first_draft
+
+  - id: first_draft
+    type: question
+    topic: "First Draft"
+    say: |
+      Now write your first draft (150-200 words) following your plan.
+      Remember your target audience: a first-year math student who knows nothing about NLP.
+
+      Useful academic phrases:
+      - The primary challenge in training word embeddings lies in...
+      - To address this computational bottleneck, Mikolov et al. introduced...
+      - From a probabilistic standpoint, this can be framed as...
+      - In essence, the method transforms...
+    save_as: answers.first_draft
+    next: feedback_revision
+
+  - id: feedback_revision
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0.2
+    prompt: prompts.feedback_revision
+    inputs: [student_context, rubric, answers, profile]
+    output: schemas.feedback_revision
+    checks:
+      - "task_achievement: int 0..5"
+      - "coherence: int 0..5"
+      - "lexical_resource: int 0..5"
+      - "grammar: int 0..5"
+    on_check_fail: "retry 1 time"
+    compute: "total = task_achievement + coherence + lexical_resource + grammar"
+    save_as: feedback_revision
+    next: final_draft
+
+  - id: final_draft
+    type: question
+    topic: "Final Draft"
+    say: |
+      Now rewrite your essay considering all the feedback.
+      Your goal: make it more academic and coherent.
+
+      After your final draft, answer 3 self-assessment questions:
+      1. What was the most challenging part of writing this essay?
+      2. Which academic phrase from the feedback did you find most useful, and why?
+      3. If you had to add one more paragraph to this essay, what would it be about?
+    save_as: answers.final_draft
+    next: final_check
+
+  - id: final_check
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0.2
+    prompt: prompts.final_check
+    inputs: [student_context, rubric, answers, feedback_revision]
+    output: schemas.final_check
+    save_as: final_check
+    next: report
+
+  - id: report
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0.2
+    prompt: prompts.report
+    inputs: [student_context, answers, feedback_revision, final_check]
+    output: schemas.report
+    save_as: report
+    next: deliver
+
+  - id: deliver
+    type: action
+    do:
+      build_file: templates.final_md
+      send_to_teacher: "final_md + teacher_meta"
+      send_to_student: "final_md"
+      write_row: "results_table"
+      update_profile: final_check.profile_notes
+    say: "Here is your Digital Presentation. Great work!"
+    next: done
+
+rubric:
+  task_achievement:
+    "5": "Fully addresses the topic; mentions logistic regression and probability; appropriate for target audience"
+    "4": "Mostly addresses the topic; minor omissions"
+    "3": "Partially addresses the topic; some key concepts missing"
+    "2": "Limited coverage; major omissions"
+    "1": "Minimal coverage; off-topic"
+    "0": "Not attempted"
+  coherence:
+    "5": "Logical structure; excellent use of connectors (however, therefore, in contrast)"
+    "4": "Good structure; some connectors used"
+    "3": "Basic structure; limited connectors"
+    "2": "Poor structure; few connectors"
+    "1": "Disorganized; no connectors"
+    "0": "Incoherent"
+  lexical_resource:
+    "5": "Rich academic vocabulary; no L1 calques; topic-specific terms used correctly"
+    "4": "Good vocabulary; minor issues"
+    "3": "Basic vocabulary; some calques"
+    "2": "Limited vocabulary; frequent calques"
+    "1": "Very limited; many calques"
+    "0": "Inadequate"
+  grammar:
+    "5": "Diverse structures (passive, conditionals, participles); no errors"
+    "4": "Good variety; minor errors"
+    "3": "Basic structures; several errors"
+    "2": "Limited structures; frequent errors"
+    "1": "Very limited; many errors"
+    "0": "Incomprehensible"
+
+prompts:
+  plan_feedback: |
+    Ты экспертный тьютор по академическому письму. Оцени план эссе студента.
+
+    КОНТЕКСТ: {student_context}
+
+    ПЛАН СТУДЕНТА:
+    {structure_planning}
+
+    Дай краткий фидбек (3-4 предложения):
+    - Что хорошо
+    - Что можно добавить или убрать
+    - Предложи 3-4 полезные академические фразы для начала эссе
+
+    Верни СТРОГО JSON без markdown:
+    {{
+      "feedback": "str (3-4 sentences)",
+      "suggested_phrases": ["...", "...", "...", "..."],
+      "recommendations": ["...", "..."]
+    }}
+
+  feedback_revision: |
+    Ты экспертный тьютор по академическому письму. Оцени первый черновик эссе студента.
+
+    {profile_block}
+
+    КОНТЕКСТ: {student_context}
+    ЗАДАНИЕ: Write a short essay (150-200 words) explaining Negative Sampling
+    to a first-year math student using logistic regression and probability.
+
+    ПЕРВЫЙ ЧЕРНОВИК:
+    {first_draft}
+
+    Оценивай по 4 критериям (каждый 0-5 баллов):
+    1. Task Achievement: полнота раскрытия темы, упоминание logistic regression и probability
+    2. Coherence & Cohesion: логика структуры, использование связок
+    3. Lexical Resource: академическая лексика, отсутствие калек с русского
+    4. Grammatical Range & Accuracy: разнообразие структур (пассив, условные, причастные обороты)
+
+    Верни СТРОГО JSON без markdown:
+    {{
+      "task_achievement": <int 0-5>,
+      "coherence": <int 0-5>,
+      "lexical_resource": <int 0-5>,
+      "grammar": <int 0-5>,
+      "total": <int 0-20>,
+      "strengths": ["...", "..."],
+      "improvements": ["...", "...", "..."],
+      "specific_errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
+      "alternative_intro_or_conclusion": "str (1-2 sentences)",
+      "profile_notes": {{
+        "recurring_errors": ["..."],
+        "resolved_since_last": ["..."],
+        "estimated_level": "B1 | B1+ | B2",
+        "writing_gaps": ["..."]
+      }}
+    }}
+
+    Правила:
+    - improvements: 3-4 пункта с примерами из текста
+    - specific_errors: 2-3 пункта
+    - alternative_intro_or_conclusion: 1 вариант для вдохновения
+    - profile_notes: отметь прогресс в академическом письме
+    - Весь фидбек на АНГЛИЙСКОМ
+
+  final_check: |
+    Ты экспертный тьютор. Оцени финальный черновик эссе студента и сравни с первым.
+
+    ПЕРВЫЙ ЧЕРНОВИК:
+    {first_draft}
+
+    ФИНАЛЬНЫЙ ЧЕРНОВИК:
+    {final_draft}
+
+    ПРЕДЫДУЩАЯ ОЦЕНКА:
+    {feedback_revision}
+
+    Оцени финальный черновик по тем же 4 критериям (0-5 каждый).
+    Покажи прогресс: что стало лучше по сравнению с первым черновиком.
+
+    Верни СТРОГО JSON без markdown:
+    {{
+      "task_achievement": <int 0-5>,
+      "coherence": <int 0-5>,
+      "lexical_resource": <int 0-5>,
+      "grammar": <int 0-5>,
+      "total": <int 0-20>,
+      "progress": ["...", "..."],
+      "remaining_issues": ["...", "..."],
+      "profile_notes": {{
+        "recurring_errors": ["..."],
+        "resolved_since_last": ["..."],
+        "estimated_level": "B1 | B1+ | B2",
+        "writing_gaps": ["..."]
+      }}
+    }}
+
+  report: |
+    Ты экспертный тьютор. Сформируй Digital Presentation по академическому эссе.
+
+    ИСХОДНАЯ СТАТЬЯ: https://arxiv.org/abs/1310.4546
+
+    ЗАДАНИЕ: Write a short essay (150-200 words) explaining Negative Sampling
+    to a first-year math student using logistic regression and probability.
+
+    ПЛАН СТУДЕНТА:
+    {structure_planning}
+
+    ПЕРВЫЙ ЧЕРНОВИК:
+    {first_draft}
+
+    ФИНАЛЬНЫЙ ЧЕРНОВИК:
+    {final_draft}
+
+    ОТВЕТЫ НА SELF-ASSESSMENT:
+    {self_assessment}
+
+    ОЦЕНКА ПЕРВОГО ЧЕРНОВИКА:
+    {feedback_revision}
+
+    ОЦЕНКА ФИНАЛЬНОГО ЧЕРНОВИКА:
+    {final_check}
+
+    Сформируй Markdown-отчет:
+
+    ## 1. Source Material
+    Название статьи и активная ссылка.
+
+    ## 2. Writing Task
+    Формулировка задания.
+
+    ## 3. Essay Plan
+    Структура эссе с тезисами студента.
+
+    ## 4. First Draft & Feedback
+    Первый черновик + таблица с оценками по 4 критериям + рекомендации.
+
+    ## 5. Final Revised Essay
+    Финальная версия эссе.
+
+    ## 6. Progress & Reflection
+    Сравнение первого и финального черновика + ответы на self-assessment.
+
+    ## 7. Useful Academic Phrases
+    Список из 8-10 фраз для академического письма по теме CS/математики.
+
+    Output ONLY the Markdown.
+
+schemas:
+  plan_feedback:
+    feedback: "str (3-4 sentences)"
+    suggested_phrases: "[str] — 3-4 items"
+    recommendations: "[str] — 2-3 items"
+  feedback_revision:
+    task_achievement: "int 0..5"
+    coherence: "int 0..5"
+    lexical_resource: "int 0..5"
+    grammar: "int 0..5"
+    total: "int 0..20"
+    strengths: "[str] — 2-3 items"
+    improvements: "[str] — 3-4 items"
+    specific_errors: "[{{original, corrected, explanation}}] — 2-3 items"
+    alternative_intro_or_conclusion: "str"
+    profile_notes:
+      recurring_errors: "[str]"
+      resolved_since_last: "[str]"
+      estimated_level: "B1 | B1+ | B2"
+      writing_gaps: "[str]"
+  final_check:
+    task_achievement: "int 0..5"
+    coherence: "int 0..5"
+    lexical_resource: "int 0..5"
+    grammar: "int 0..5"
+    total: "int 0..20"
+    progress: "[str] — 2-3 items"
+    remaining_issues: "[str] — 1-2 items"
+    profile_notes:
+      recurring_errors: "[str]"
+      resolved_since_last: "[str]"
+      estimated_level: "B1 | B1+ | B2"
+      writing_gaps: "[str]"
+  report:
+    source_material: "str"
+    writing_task: "str"
+    essay_plan: "str"
+    first_draft: "str"
+    first_draft_feedback: "str"
+    final_draft: "str"
+    progress_reflection: "str"
+    useful_phrases: "[str] — 8-10 items"
+
+templates:
+  final_md: |
+    # Digital Presentation: Academic Writing — Negative Sampling Explained
+
+    Student: {student_name} · Date: {date}
+
+    ## 1. Source Material
+    **Distributed Representations of Words and Phrases and their Compositionality**
+    Mikolov et al., 2013
+    [Link to arXiv](https://arxiv.org/abs/1310.4546)
+
+    ## 2. Writing Task
+    {writing_task}
+
+    ## 3. Essay Plan
+    {essay_plan}
+
+    ## 4. First Draft & Feedback
+    **First Draft:**
+    {first_draft}
+
+    **Feedback:**
+    | Criterion | Score | Max |
+    |-----------|-------|-----|
+    | Task Achievement | {first_task_achievement} | 5 |
+    | Coherence & Cohesion | {first_coherence} | 5 |
+    | Lexical Resource | {first_lexical} | 5 |
+    | Grammatical Range & Accuracy | {first_grammar} | 5 |
+    | **Total** | **{first_total}** | **20** |
+
+    **Recommendations:**
+    {for r in first_recommendations}- {r}{end}
+
+    ## 5. Final Revised Essay
+    {final_draft}
+
+    ## 6. Progress & Reflection
+    **Progress:**
+    {for p in progress}- {p}{end}
+
+    **Self-Assessment:**
+    {self_assessment}
+
+    ## 7. Useful Academic Phrases
+    {for p in useful_phrases}- {p}{end}
+
+    ---
+    {closing}
+
+  teacher_meta: |
+    ### Служебное (только для преподавателя)
+    Исходные ответы: {answers_raw}
+    Флаги: {flags}
+    Токены: {token_usage}
+    Хеш: {report_hash}
