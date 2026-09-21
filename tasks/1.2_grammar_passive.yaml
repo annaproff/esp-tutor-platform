@@ -1,15 +1,9 @@
-=====================================================================
-Task #1.2: Passive Voice — Computer Technology (B2)
-Version: 1.0
-=====================================================================
-
 meta:
   id: task_grammar_passive
   title: "Passive Voice — Computer Technology (B2)"
   max_score: 10
   llm_calls: 2
   est_tokens: "8-10k"
-  est_cost_rub: "6-10"
 
 student_context:
   age: 18
@@ -209,7 +203,6 @@ steps:
     inputs: [student_context, rubric, answers, profile]
     output: schemas.grade
     checks:
-      - "accuracy: int 0..10"
       - "mc_score: int 0..10"
     on_check_fail: "retry 1 time"
     compute: "total = mc_score"
@@ -274,7 +267,15 @@ prompts:
       "mc_score": <int 0-10>,
       "mc_details": {{
         "mc1": {{"student": "...", "correct": "A", "is_correct": true/false}},
-        ...
+        "mc2": {{"student": "...", "correct": "B", "is_correct": true/false}},
+        "mc3": {{"student": "...", "correct": "C", "is_correct": true/false}},
+        "mc4": {{"student": "...", "correct": "C", "is_correct": true/false}},
+        "mc5": {{"student": "...", "correct": "A", "is_correct": true/false}},
+        "mc6": {{"student": "...", "correct": "C", "is_correct": true/false}},
+        "mc7": {{"student": "...", "correct": "B", "is_correct": true/false}},
+        "mc8": {{"student": "...", "correct": "B", "is_correct": true/false}},
+        "mc9": {{"student": "...", "correct": "C", "is_correct": true/false}},
+        "mc10": {{"student": "...", "correct": "D", "is_correct": true/false}}
       }},
       "open_answers_quality": "good | partial | weak",
       "strengths": ["...", "..."],
