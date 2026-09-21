@@ -1,0 +1,30 @@
+   meta:
+     id: task_tech_habits
+     title: "Technology Usage Habits Interview"
+     max_score: 30
+   
+   student_context:
+     age: 18
+     major: mathematics
+     level: "B1 (with elements of B2)"
+   
+   settings:
+     answers:
+       language: en
+       min_words: 25
+   
+   steps:
+     - id: start
+       type: gate
+       say: "Hi! This is a short interview about your tech habits: 6 questions, one at a time. Answer in English. Press Start when you're ready."
+       buttons: ["Start"]
+       next: q1
+   
+     - id: q1
+       type: question
+       topic: "Screen Time"
+       say: "How many hours a day do you typically spend on screens, and what is your most time-consuming digital activity?"
+       save_as: answers.q1
+       next: q2
+   
+     # (Здесь будут остальные 5 вопросов, мы добавим их на следующем шаге)
