@@ -7,8 +7,7 @@ import hashlib
 import pandas as pd
 from datetime import datetime
 from openai import OpenAI
-from urllib.parse import urlparse
-import psycopg2
+from supabase import create_client, Client
 import time
 
 # ==========================================
@@ -18,11 +17,12 @@ st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide
 
 YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.environ.get("YANDEX_FOLDER_ID")
-SUPABASE_URI = os.environ.get("SUPABASE_URI")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 
-if not YANDEX_API_KEY or not YANDEX_FOLDER_ID or not SUPABASE_URI:
-    st.error("Missing environment variables. Check YANDEX_API_KEY, YANDEX_FOLDER_ID, SUPABASE_URI.")
+if not YANDEX_API_KEY or not YANDEX_FOLDER_ID or not SUPABASE_URL or not SUPABASE_KEY:
+    st.error("Missing environment variables. Check YANDEX_API_KEY, YANDEX_FOLDER_ID, SUPABASE_URL, SUPABASE_KEY.")
     st.stop()
 
 client = OpenAI(
@@ -30,17 +30,7 @@ client = OpenAI(
     base_url="https://llm.api.cloud.yandex.net/foundationModels/v1"
 )
 
-@st.cache_resource
-def get_db_connection():
-    parsed = urlparse(SUPABASE_URI)
-    return psycopg2.connect(
-        dbname=parsed.path[1:],
-        user=parsed.username,
-        password=parsed.password,
-        host=parsed.hostname,
-        port=parsed.port or 5432,
-        connect_timeout=10
-    )
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ==========================================
 # 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -116,53 +106,39 @@ def validate_answer(answer, min_words=15, russian_threshold=0.3):
     return flags, warnings
 
 # ==========================================
-# 3. РАБОТА С ПРОФИЛЕМ СТУДЕНТА
+# 3. РАБОТА С ПРОФИЛЕМ СТУДЕНТА (через REST API)
 # ==========================================
 def get_or_create_student(full_name):
-    conn = get_db_connection()
-    cur = conn.cursor()
     try:
-        cur.execute(
-            "SELECT id, profile_json FROM students WHERE full_name = %s",
-            (full_name,)
-        )
-        row = cur.fetchone()
-        if row:
-            student_id, profile = row
-            profile = profile if isinstance(profile, dict) else {}
+        response = supabase.table("students").select("id, profile_json").eq("full_name", full_name).execute()
+        if response.data:
+            row = response.data[0]
+            student_id = row["id"]
+            profile = row.get("profile_json") or {}
+            if isinstance(profile, str):
+                profile = json.loads(profile)
+            return student_id, profile
         else:
-            cur.execute(
-                "INSERT INTO students (full_name) VALUES (%s) RETURNING id",
-                (full_name,)
-            )
-            student_id = cur.fetchone()[0]
-            profile = {}
-            conn.commit()
-        return student_id, profile
-    finally:
-        cur.close()
-        conn.close()
+            response = supabase.table("students").insert({"full_name": full_name}).execute()
+            student_id = response.data[0]["id"]
+            return student_id, {}
+    except Exception as e:
+        st.error(f"Ошибка работы с БД: {e}")
+        st.stop()
 
 def save_student_profile(student_id, profile_notes):
     if not profile_notes:
         return
-    conn = get_db_connection()
-    cur = conn.cursor()
     try:
-        cur.execute("SELECT profile_json FROM students WHERE id = %s", (student_id,))
-        row = cur.fetchone()
-        current_profile = row[0] if row and row[0] else {}
-        if isinstance(current_profile, str):
-            current_profile = json.loads(current_profile)
-        current_profile.update(profile_notes)
-        cur.execute(
-            "UPDATE students SET profile_json = %s WHERE id = %s",
-            (json.dumps(current_profile, ensure_ascii=False), student_id)
-        )
-        conn.commit()
-    finally:
-        cur.close()
-        conn.close()
+        response = supabase.table("students").select("profile_json").eq("id", student_id).execute()
+        if response.data:
+            current_profile = response.data[0].get("profile_json") or {}
+            if isinstance(current_profile, str):
+                current_profile = json.loads(current_profile)
+            current_profile.update(profile_notes)
+            supabase.table("students").update({"profile_json": current_profile}).eq("id", student_id).execute()
+    except Exception as e:
+        st.error(f"Ошибка обновления профиля: {e}")
 
 def format_profile_for_prompt(profile):
     if not profile:
@@ -185,18 +161,13 @@ def format_profile_for_prompt(profile):
     return "\n".join(lines)
 
 def check_attempts(full_name, task_id, max_attempts=1):
-    conn = get_db_connection()
-    cur = conn.cursor()
     try:
-        cur.execute(
-            "SELECT COUNT(*) FROM sessions WHERE full_name = %s AND task_id = %s AND status = 'completed'",
-            (full_name, task_id)
-        )
-        count = cur.fetchone()[0]
+        response = supabase.table("sessions").select("id", count="exact").eq("full_name", full_name).eq("task_id", task_id).eq("status", "completed").execute()
+        count = response.count if response.count is not None else 0
         return count < max_attempts
-    finally:
-        cur.close()
-        conn.close()
+    except Exception as e:
+        st.error(f"Ошибка проверки попыток: {e}")
+        return True
 
 def format_prompt_with_context(prompt_template, context_dict):
     try:
@@ -307,7 +278,7 @@ def render_llm_step(step, task_data, answers, profile, student_context):
     
     prompt = format_prompt_with_context(prompt_template, context)
     
-    with st.spinner(" Нейросеть анализирует ваш ответ (это может занять 10-20 секунд)..."):
+    with st.spinner("🧠 Нейросеть анализирует ваш ответ (это может занять 10-20 секунд)..."):
         try:
             response, tokens = call_llm_with_retry(
                 prompt,
@@ -361,15 +332,15 @@ def display_grade_metrics(grade, max_score=None):
 # 6. ВХОД
 # ==========================================
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title(" Добро пожаловать в AI Tutor Platform")
+    st.title("🎓 Добро пожаловать в AI Tutor Platform")
     st.markdown("Выберите режим входа:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("‍🎓 Я студент", use_container_width=True):
+        if st.button("🎓 Я студент", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("‍🏫 Я преподаватель", use_container_width=True):
+        if st.button("👩‍🏫 Я преподаватель", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -400,7 +371,7 @@ if st.session_state.get("mode") == "student" and "student_name" not in st.sessio
 
 elif st.session_state.get("mode") == "student" and "student_name" in st.session_state:
     with st.sidebar:
-        st.success(f"👤 {st.session_state.student_name}")
+        st.success(f" {st.session_state.student_name}")
         profile = st.session_state.get("student_profile", {})
         if profile:
             level = profile.get("estimated_level", "—")
@@ -475,29 +446,22 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.session_state.current_step_idx = step_idx + 1
                     
                     try:
-                        conn = get_db_connection()
-                        cur = conn.cursor()
                         if st.session_state.session_id is None:
-                            cur.execute("""
-                                INSERT INTO sessions (full_name, task_id, current_step, answers, flags)
-                                VALUES (%s, %s, %s, %s, %s)
-                                RETURNING id
-                            """, (st.session_state.student_name, task_id, step_idx + 1,
-                                  json.dumps(st.session_state.answers, ensure_ascii=False),
-                                  json.dumps(st.session_state.flags, ensure_ascii=False)))
-                            st.session_state.session_id = cur.fetchone()[0]
+                            response = supabase.table("sessions").insert({
+                                "full_name": st.session_state.student_name,
+                                "task_id": task_id,
+                                "current_step": step_idx + 1,
+                                "answers": st.session_state.answers,
+                                "flags": st.session_state.flags,
+                                "status": "in_progress"
+                            }).execute()
+                            st.session_state.session_id = response.data[0]["id"]
                         else:
-                            cur.execute("""
-                                UPDATE sessions
-                                SET current_step = %s, answers = %s, flags = %s
-                                WHERE id = %s
-                            """, (step_idx + 1,
-                                  json.dumps(st.session_state.answers, ensure_ascii=False),
-                                  json.dumps(st.session_state.flags, ensure_ascii=False),
-                                  st.session_state.session_id))
-                        conn.commit()
-                        cur.close()
-                        conn.close()
+                            supabase.table("sessions").update({
+                                "current_step": step_idx + 1,
+                                "answers": st.session_state.answers,
+                                "flags": st.session_state.flags
+                            }).eq("id", st.session_state.session_id).execute()
                     except Exception as e:
                         st.error(f"Ошибка БД: {e}")
                     st.rerun()
@@ -602,34 +566,21 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 report_body = st.session_state.final_report.split("---")[0]
                 st.markdown(report_body)
                 st.download_button(
-                    " Скачать отчет (Markdown)",
+                    "📥 Скачать отчет (Markdown)",
                     report_body,
                     file_name=f"report_{st.session_state.student_name.replace(' ', '_')}.md",
                     mime="text/markdown"
                 )
                 
                 try:
-                    conn = get_db_connection()
-                    cur = conn.cursor()
-                    cur.execute("""
-                        UPDATE sessions
-                        SET status = 'completed',
-                            grade_json = %s,
-                            report_hash = %s,
-                            token_usage = %s,
-                            answers = %s,
-                            completed_at = NOW()
-                        WHERE id = %s
-                    """, (
-                        json.dumps(st.session_state.llm_results, ensure_ascii=False),
-                        st.session_state.report_hash,
-                        st.session_state.token_usage["total_tokens"],
-                        json.dumps(st.session_state.answers, ensure_ascii=False),
-                        st.session_state.session_id
-                    ))
-                    conn.commit()
-                    cur.close()
-                    conn.close()
+                    supabase.table("sessions").update({
+                        "status": "completed",
+                        "grade_json": st.session_state.llm_results,
+                        "report_hash": st.session_state.report_hash,
+                        "token_usage": st.session_state.token_usage["total_tokens"],
+                        "answers": st.session_state.answers,
+                        "completed_at": datetime.now().isoformat()
+                    }).eq("id", st.session_state.session_id).execute()
                     
                     profile_notes = None
                     for result in st.session_state.llm_results.values():
@@ -649,7 +600,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
 # ==========================================
 elif st.session_state.get("mode") == "admin":
     if "admin_auth" not in st.session_state:
-        st.subheader(" Вход для преподавателя")
+        st.subheader("🔒 Вход для преподавателя")
         pwd = st.text_input("Введите пароль администратора", type="password")
         if st.button("Войти"):
             if pwd == ADMIN_PASSWORD:
@@ -663,24 +614,24 @@ elif st.session_state.get("mode") == "admin":
             del st.session_state.admin_auth
             st.rerun()
         try:
-            conn = get_db_connection()
-            df = pd.read_sql("""
-                SELECT id, full_name, task_id,
-                       (grade_json->>'accuracy')::int as accuracy,
-                       (grade_json->>'fluency')::int as fluency,
-                       (grade_json->>'mc_score')::int as mc_score,
-                       (grade_json->>'task_achievement')::int as task_achievement,
-                       (grade_json->>'coherence')::int as coherence,
-                       (grade_json->>'lexical_resource')::int as lexical_resource,
-                       (grade_json->>'grammar')::int as grammar,
-                       (grade_json->>'total')::int as total,
-                       status, flags, token_usage, report_hash, answers, created_at, completed_at
-                FROM sessions ORDER BY full_name, created_at
-            """, conn)
-            conn.close()
+            response = supabase.table("sessions").select("*").order("full_name").order("created_at").execute()
+            df = pd.DataFrame(response.data)
+            
             if df.empty:
                 st.info("ℹ️ Пока нет данных от студентов.")
             else:
+                # Преобразуем JSONB поля
+                if 'grade_json' in df.columns:
+                    df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if isinstance(x, str) else x)
+                    df['accuracy'] = df['grade_json'].apply(lambda x: x.get('accuracy') if isinstance(x, dict) else None)
+                    df['fluency'] = df['grade_json'].apply(lambda x: x.get('fluency') if isinstance(x, dict) else None)
+                    df['mc_score'] = df['grade_json'].apply(lambda x: x.get('mc_score') if isinstance(x, dict) else None)
+                    df['task_achievement'] = df['grade_json'].apply(lambda x: x.get('task_achievement') if isinstance(x, dict) else None)
+                    df['coherence'] = df['grade_json'].apply(lambda x: x.get('coherence') if isinstance(x, dict) else None)
+                    df['lexical_resource'] = df['grade_json'].apply(lambda x: x.get('lexical_resource') if isinstance(x, dict) else None)
+                    df['grammar'] = df['grade_json'].apply(lambda x: x.get('grammar') if isinstance(x, dict) else None)
+                    df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
+                
                 st.subheader("📊 Сводная таблица (Pivot)")
                 if 'total' in df.columns and df['total'].notna().any():
                     pivot_values = 'total'
@@ -688,10 +639,10 @@ elif st.session_state.get("mode") == "admin":
                     pivot_values = 'mc_score'
                 else:
                     df['essay_total'] = (
-                        df['task_achievement'].fillna(0).astype(int) +
-                        df['coherence'].fillna(0).astype(int) +
-                        df['lexical_resource'].fillna(0).astype(int) +
-                        df['grammar'].fillna(0).astype(int)
+                        df['task_achievement'].fillna(0).astype(float) +
+                        df['coherence'].fillna(0).astype(float) +
+                        df['lexical_resource'].fillna(0).astype(float) +
+                        df['grammar'].fillna(0).astype(float)
                     )
                     pivot_values = 'essay_total'
                 
@@ -701,43 +652,47 @@ elif st.session_state.get("mode") == "admin":
                 st.markdown("---")
                 st.subheader("🔍 Детальный просмотр сессий")
                 for idx, row in df.iterrows():
-                    with st.expander(f"{row['full_name']} - {row['task_id']} - {row['status']}"):
+                    with st.expander(f"{row.get('full_name', 'Unknown')} - {row.get('task_id', 'Unknown')} - {row.get('status', 'Unknown')}"):
                         col1, col2 = st.columns(2)
                         with col1:
-                            if row['accuracy'] is not None:
+                            if row.get('accuracy') is not None:
                                 st.metric("Accuracy", f"{row['accuracy']}/20")
-                            if row['fluency'] is not None:
+                            if row.get('fluency') is not None:
                                 st.metric("Fluency", f"{row['fluency']}/10")
-                            if row['mc_score'] is not None:
+                            if row.get('mc_score') is not None:
                                 st.metric("MC Score", f"{row['mc_score']}/10")
-                            if row['task_achievement'] is not None:
+                            if row.get('task_achievement') is not None:
                                 st.metric("Task Achievement", f"{row['task_achievement']}/5")
-                            if row['coherence'] is not None:
+                            if row.get('coherence') is not None:
                                 st.metric("Coherence", f"{row['coherence']}/5")
-                            if row['lexical_resource'] is not None:
+                            if row.get('lexical_resource') is not None:
                                 st.metric("Lexical Resource", f"{row['lexical_resource']}/5")
-                            if row['grammar'] is not None:
+                            if row.get('grammar') is not None:
                                 st.metric("Grammar", f"{row['grammar']}/5")
-                            if row['total'] is not None:
+                            if row.get('total') is not None:
                                 st.metric("Total", f"{row['total']}")
                         with col2:
-                            st.write(f"**Статус:** {row['status']}")
-                            st.write(f"**Токены:** {row['token_usage']}")
-                            st.write(f"**Флаги:** {row['flags']}")
-                            st.write(f"**Хеш отчета:** `{row['report_hash'][:16]}...`" if row['report_hash'] else "Нет хеша")
-                        st.write(f"**Начато:** {row['created_at']}")
-                        st.write(f"**Завершено:** {row['completed_at']}")
+                            st.write(f"**Статус:** {row.get('status')}")
+                            st.write(f"**Токены:** {row.get('token_usage')}")
+                            st.write(f"**Флаги:** {row.get('flags')}")
+                            report_hash = row.get('report_hash')
+                            st.write(f"**Хеш отчета:** `{report_hash[:16]}...`" if report_hash else "Нет хеша")
+                        st.write(f"**Начато:** {row.get('created_at')}")
+                        st.write(f"**Завершено:** {row.get('completed_at')}")
                         st.markdown("**📝 Сырые ответы студента:**")
                         try:
-                            answers = json.loads(row['answers']) if row['answers'] else {}
+                            answers = row.get('answers', {})
+                            if isinstance(answers, str):
+                                answers = json.loads(answers)
                             for q_id, answer in answers.items():
                                 st.markdown(f"**{q_id}:** {answer}")
                         except:
                             st.write("Не удалось загрузить ответы")
                 st.markdown("---")
                 st.subheader(" Экспорт в Excel (Плоская таблица)")
-                st.dataframe(df.drop(columns=['answers']), use_container_width=True)
-                csv = df.drop(columns=['answers']).to_csv(index=False).encode('utf-8')
+                export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
+                st.dataframe(export_df, use_container_width=True)
+                csv = export_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Скачать CSV/Excel", csv, "student_results.csv", "text/csv")
         except Exception as e:
             st.error(f"Ошибка подключения к БД: {e}")
