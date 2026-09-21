@@ -360,11 +360,11 @@ def display_grade_metrics(grade, max_score=None):
 # 6. ВХОД
 # ==========================================
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title(" Добро пожаловать в AI Tutor Platform")
+    st.title("Добро пожаловать в AI Tutor Platform")
     st.markdown("Выберите режим входа:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(" Я студент", use_container_width=True):
+        if st.button("Я студент", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
@@ -411,7 +411,8 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
 
     TASKS_DIR = "tasks"
     try:
-        task_files = [f for f in os.listdir(TASKS_DIR) if f.endswith('.yaml')]
+        # СОРТИРОВКА ПО НОМЕРАМ: 1.1, 1.2, 1.3, 1.4, 1.5
+        task_files = sorted([f for f in os.listdir(TASKS_DIR) if f.endswith('.yaml')])
     except FileNotFoundError:
         st.error(f"Папка {TASKS_DIR} не найдена!")
         st.stop()
@@ -648,7 +649,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
 # ==========================================
 elif st.session_state.get("mode") == "admin":
     if "admin_auth" not in st.session_state:
-        st.subheader(" Вход для преподавателя")
+        st.subheader("Вход для преподавателя")
         pwd = st.text_input("Введите пароль администратора", type="password")
         if st.button("Войти"):
             if pwd == ADMIN_PASSWORD:
@@ -657,7 +658,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Неверный пароль")
     else:
-        st.title("👩‍🏫 Панель преподавателя (Дашборд)")
+        st.title("‍🏫 Панель преподавателя (Дашборд)")
         if st.button("Выйти из админки"):
             del st.session_state.admin_auth
             st.rerun()
