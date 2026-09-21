@@ -97,33 +97,39 @@ rubric:
 
 prompts:
   grade: |
-    You are an expert English tutor assessing a B1+/B2 student (18 y.o., math major) on technology usage habits.
+    Ты экспертный тьютор по английскому языку. Оцени 6 ответов студента (18 лет, математик, уровень B1-B2) по теме технологических привычек.
     
-    STUDENT ANSWERS:
+    {profile_block}
+    
+    ОТВЕТЫ СТУДЕНТА:
     {answers_numbered}
     
-    Assess on two criteria:
-    1. ACCURACY (/20): grammar (tenses, passive, modals), lexical precision (B2-level topic vocabulary, no L1 calques)
-    2. FLUENCY (/10): coherence & cohesion, discourse markers, naturalness, length
+    Оценивай по двум критериям:
+    1. ACCURACY (/20): грамматика (времена, пассив, модальные), лексическая точность (B2, без кальки с русского)
+    2. FLUENCY (/10): связность, дискурсивные маркеры, естественность, длина ответов
     
-    Return STRICTLY JSON without markdown:
+    Верни СТРОГО JSON без markdown:
     {{
       "accuracy": <int 0-20>,
       "fluency": <int 0-10>,
       "total": <int 0-30>,
       "strengths": ["...", "..."],
       "improvements": ["...", "..."],
-      "errors": [
-        {{"original": "...", "corrected": "...", "explanation": "..."}}
-      ]
+      "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
+      "profile_notes": {{
+        "recurring_errors": ["..."],
+        "resolved_since_last": ["..."],
+        "estimated_level": "B1 | B1+ | B2",
+        "vocabulary_gaps": ["..."]
+      }}
     }}
     
-    Rules:
-    - errors: exactly 2-3 items
-    - strengths: 2-3 concrete items
-    - improvements: 2-3 concrete items
-    - All feedback in ENGLISH
-
+    Правила:
+    - errors: ровно 2-3 пункта, original — дословная цитата из ответов
+    - strengths/improvements: по 2-3 пункта
+    - profile_notes: отметь повторяющиеся ошибки и что улучшилось с прошлого задания
+    - Весь фидбек на АНГЛИЙСКОМ
+    
   report: |
     You are an expert English tutor. Produce a final Markdown report.
     
