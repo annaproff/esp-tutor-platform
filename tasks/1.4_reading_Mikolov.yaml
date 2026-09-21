@@ -1,23 +1,14 @@
-=====================================================================
-Task #1.4: Mathematical Foundations of Word Representations
-Version: 1.0
-Source: Mikolov et al., 2013
-=====================================================================
-
 meta:
   id: task_reading_mikolov
   title: "Mathematical Foundations of Word Representations"
   max_score: 30
   llm_calls: 2
   est_tokens: "12-15k"
-  est_cost_rub: "10-15"
-  source_article: "https://arxiv.org/abs/1310.4546"
 
 student_context:
   major: mathematics
   level: "B1-B2"
   topic: "Word Representations, Skip-gram, Negative Sampling"
-  duration: "90 minutes"
 
 settings:
   answers:
