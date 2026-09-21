@@ -14,7 +14,7 @@ import time
 # ==========================================
 # 1. НАСТРОЙКИ И ПОДКЛЮЧЕНИЯ
 # ==========================================
-st.set_page_config(page_title="AI English Tutor", page_icon="", layout="wide")
+st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide")
 
 YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.environ.get("YANDEX_FOLDER_ID")
@@ -39,7 +39,7 @@ def get_db_connection():
         password=parsed.password,
         host=parsed.hostname,
         port=parsed.port or 5432,
-        connect_timeout=5  # Добавляем таймаут, чтобы не висело вечно, если сеть сбоит
+        connect_timeout=10
     )
 
 # ==========================================
@@ -307,21 +307,20 @@ def render_llm_step(step, task_data, answers, profile, student_context):
     
     prompt = format_prompt_with_context(prompt_template, context)
     
-    st.markdown("Нейросеть анализирует... ⏳")
-    try:
-        response, tokens = call_llm_with_retry(
-            prompt,
-            max_retries=2,
-            temperature=step.get("temperature", 0.2)
-        )
-        
+    with st.spinner(" Нейросеть анализирует ваш ответ (это может занять 10-20 секунд)..."):
         try:
-            result = extract_json_with_retry(response, prompt_for_retry=prompt, max_retries=1)
-            return result, tokens
-        except:
-            return {"raw_response": response}, tokens
-    except Exception as e:
-        return {"error": str(e)}, {"total_tokens": 0}
+            response, tokens = call_llm_with_retry(
+                prompt,
+                max_retries=2,
+                temperature=step.get("temperature", 0.2)
+            )
+            try:
+                result = extract_json_with_retry(response, prompt_for_retry=prompt, max_retries=1)
+                return result, tokens
+            except:
+                return {"raw_response": response}, tokens
+        except Exception as e:
+            return {"error": str(e)}, {"total_tokens": 0}
 
 def render_message_step(step):
     st.markdown(step.get("say", ""))
@@ -362,15 +361,15 @@ def display_grade_metrics(grade, max_score=None):
 # 6. ВХОД
 # ==========================================
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title("Добро пожаловать в AI Tutor Platform")
+    st.title(" Добро пожаловать в AI Tutor Platform")
     st.markdown("Выберите режим входа:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Я студент", use_container_width=True):
+        if st.button("‍🎓 Я студент", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("👩‍🏫 Я преподаватель", use_container_width=True):
+        if st.button("‍🏫 Я преподаватель", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -413,7 +412,6 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
 
     TASKS_DIR = "tasks"
     try:
-        # СОРТИРОВКА ПО НОМЕРАМ: 1.1, 1.2, 1.3, 1.4, 1.5
         task_files = sorted([f for f in os.listdir(TASKS_DIR) if f.endswith('.yaml')])
     except FileNotFoundError:
         st.error(f"Папка {TASKS_DIR} не найдена!")
@@ -604,7 +602,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 report_body = st.session_state.final_report.split("---")[0]
                 st.markdown(report_body)
                 st.download_button(
-                    "Скачать отчет (Markdown)",
+                    " Скачать отчет (Markdown)",
                     report_body,
                     file_name=f"report_{st.session_state.student_name.replace(' ', '_')}.md",
                     mime="text/markdown"
@@ -642,7 +640,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     if profile_notes:
                         save_student_profile(st.session_state.student_id, profile_notes)
                         st.session_state.student_profile.update(profile_notes)
-                    st.success("Результаты сохранены! Профиль обновлён для будущих заданий.")
+                    st.success("✅ Результаты сохранены! Профиль обновлён для будущих заданий.")
                 except Exception as e:
                     st.error(f"Ошибка обновления БД: {e}")
 
@@ -651,7 +649,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
 # ==========================================
 elif st.session_state.get("mode") == "admin":
     if "admin_auth" not in st.session_state:
-        st.subheader("Вход для преподавателя")
+        st.subheader(" Вход для преподавателя")
         pwd = st.text_input("Введите пароль администратора", type="password")
         if st.button("Войти"):
             if pwd == ADMIN_PASSWORD:
@@ -660,7 +658,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Неверный пароль")
     else:
-        st.title("‍🏫 Панель преподавателя (Дашборд)")
+        st.title("👩‍🏫 Панель преподавателя (Дашборд)")
         if st.button("Выйти из админки"):
             del st.session_state.admin_auth
             st.rerun()
@@ -681,7 +679,7 @@ elif st.session_state.get("mode") == "admin":
             """, conn)
             conn.close()
             if df.empty:
-                st.info("Пока нет данных от студентов.")
+                st.info("ℹ️ Пока нет данных от студентов.")
             else:
                 st.subheader("📊 Сводная таблица (Pivot)")
                 if 'total' in df.columns and df['total'].notna().any():
@@ -737,7 +735,7 @@ elif st.session_state.get("mode") == "admin":
                         except:
                             st.write("Не удалось загрузить ответы")
                 st.markdown("---")
-                st.subheader("📥 Экспорт в Excel (Плоская таблица)")
+                st.subheader(" Экспорт в Excel (Плоская таблица)")
                 st.dataframe(df.drop(columns=['answers']), use_container_width=True)
                 csv = df.drop(columns=['answers']).to_csv(index=False).encode('utf-8')
                 st.download_button("Скачать CSV/Excel", csv, "student_results.csv", "text/csv")
