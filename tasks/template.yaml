@@ -2,9 +2,9 @@ meta:
   id: "unit_{{UNIT_NUMBER}}"
   title: "{{UNIT_TITLE}}"
   max_score: 50
-  llm_calls: 4
-  est_tokens: "15-20k"
-  est_cost_rub: "12-18"
+  llm_calls: 2
+  est_tokens: "10-12k"
+  est_cost_rub: "8-12"
 student_context:
   age: 18
   major: mathematics
@@ -21,15 +21,14 @@ steps:
   - id: start
     type: gate
     say: |
-      Hi! This is a comprehensive 50-point task.
+      Hi! This is a 50-point task.
       Part 1: Grammar - Passive Voice (10 MCQs, 10 pts)
-      Part 2: Tech Preferences Survey (6 questions, no right answers)
-      Part 3: Personalized Interview (6 audio questions, 30 pts)
+      Part 2: Tech Habits Interview (6 questions, 40 pts)
       Press Start when you're ready.
     buttons: ["Start"]
     next: g1
 
-  # === ЧАСТЬ 1: ГРАММАТИКА ===
+  # === ЧАСТЬ 1: ГРАММАТИКА (10 баллов) ===
   - id: g1
     type: multiple_choice
     topic: "Present Simple Passive"
@@ -148,114 +147,50 @@ steps:
       C: "were fixed"
       D: "have been fixed"
     correct: D
-    next: survey_generate
-
-  # === ЧАСТЬ 2: АНКЕТА ===
-  - id: survey_generate
-    type: llm
-    model: yandexgpt-pro
-    temperature: 0.4
-    prompt: prompts.survey_generate
-    inputs: ["student_context"]
-    output: schemas.survey_generate
-    save_as: survey_context
-    next: s1
-
-  - id: s1
-    type: question
-    topic: "Survey Q1"
-    audio: false
-    say: "{survey_context.q1}"
-    next: s2
-
-  - id: s2
-    type: question
-    topic: "Survey Q2"
-    audio: false
-    say: "{survey_context.q2}"
-    next: s3
-
-  - id: s3
-    type: question
-    topic: "Survey Q3"
-    audio: false
-    say: "{survey_context.q3}"
-    next: s4
-
-  - id: s4
-    type: question
-    topic: "Survey Q4"
-    audio: false
-    say: "{survey_context.q4}"
-    next: s5
-
-  - id: s5
-    type: question
-    topic: "Survey Q5"
-    audio: false
-    say: "{survey_context.q5}"
-    next: s6
-
-  - id: s6
-    type: question
-    topic: "Survey Q6"
-    audio: false
-    say: "{survey_context.q6}"
-    after_save_say: "Great! Now let's move to the interview. You'll be able to record audio answers."
-    next: interview_generate
-
-  # === ЧАСТЬ 3: ИНТЕРВЬЮ ===
-  - id: interview_generate
-    type: llm
-    model: yandexgpt-pro
-    temperature: 0.3
-    prompt: prompts.interview_generate
-    inputs: ["student_context", "survey_context", "answers.s1", "answers.s2", "answers.s3", "answers.s4", "answers.s5", "answers.s6"]
-    output: schemas.interview_generate
-    save_as: interview_context
     next: i1
 
+  # === ЧАСТЬ 2: ИНТЕРВЬЮ (40 баллов) ===
   - id: i1
     type: question
-    topic: "Interview Q1"
+    topic: "Screen Time"
     audio: true
-    say: "{interview_context.iq1}"
+    say: "How many hours a day do you typically spend on screens, and what is your most time-consuming digital activity?"
     next: i2
 
   - id: i2
     type: question
-    topic: "Interview Q2"
+    topic: "Cybersecurity"
     audio: true
-    say: "{interview_context.iq2}"
+    say: "What specific measures do you take to protect your devices and online accounts from cyber threats (e.g., passwords, two-factor authentication)?"
     next: i3
 
   - id: i3
     type: question
-    topic: "Interview Q3"
+    topic: "Personal Data Protection"
     audio: true
-    say: "{interview_context.iq3}"
+    say: "How carefully do you manage your personal data when installing new apps, accepting cookies, or using social media platforms?"
     next: i4
 
   - id: i4
     type: question
-    topic: "Interview Q4"
+    topic: "Digital Boundaries"
     audio: true
-    say: "{interview_context.iq4}"
+    say: "Did you experience any parental control over your tech use growing up, and how do you set digital boundaries for yourself now as a young adult?"
     next: i5
 
   - id: i5
     type: question
-    topic: "Interview Q5"
+    topic: "Tech & Studies"
     audio: true
-    say: "{interview_context.iq5}"
+    say: "As a math student, how does technology impact your focus and productivity when solving complex problems or studying? Does it help or distract you more?"
     next: i6
 
   - id: i6
     type: question
-    topic: "Interview Q6"
+    topic: "Digital Detox & Future"
     audio: true
-    say: "{interview_context.iq6}"
-    after_save_say: "Thank you! Calculating your final score..."
+    say: "Do you ever practice a 'digital detox', and how do you imagine your relationship with technology changing in the next 5 years?"
+    after_save_say: "Thank you! Give me a moment to review your answers and calculate your final score."
     next: final_grade
 
   - id: final_grade
@@ -263,7 +198,7 @@ steps:
     model: yandexgpt-pro
     temperature: 0
     prompt: prompts.final_grade
-    inputs: ["student_context", "interview_context", "answers"]
+    inputs: ["student_context", "answers"]
     output: schemas.final_grade
     save_as: final_grade
     next: report
@@ -273,7 +208,7 @@ steps:
     model: yandexgpt-pro
     temperature: 0.2
     prompt: prompts.report
-    inputs: ["student_context", "answers", "interview_context", "final_grade"]
+    inputs: ["student_context", "answers", "final_grade"]
     output: schemas.report
     save_as: report
     next: deliver
@@ -289,65 +224,21 @@ steps:
     next: done
 
 prompts:
-  survey_generate: |
-    You are an expert English tutor. Generate a 6-question survey to understand the student's technology preferences and habits.
-    Student profile: {student_context}
-    
-    TASK: Create 6 engaging questions about devices, apps, studies, cybersecurity, screen time, and future tech interests.
-    Questions should be open-ended to encourage detailed answers. Use natural, conversational English at B1-B2 level.
-    
-    Return STRICT JSON only:
-    {
-      "q1": "What devices do you use daily, and which one is most important to you?",
-      "q2": "Name your top 3 apps and explain what you use them for.",
-      "q3": "How does technology help you with your studies or work?",
-      "q4": "What measures do you take to protect your personal data online?",
-      "q5": "How many hours a day do you spend on screens, and do you try to limit it?",
-      "q6": "What new technology are you most excited about in the next 5 years?"
-    }
-
-  interview_generate: |
-    You are an expert English tutor. Based on the student's survey answers, generate 6 personalized interview questions.
-    Student's survey answers:
-    Q1: {s1}
-    Q2: {s2}
-    Q3: {s3}
-    Q4: {s4}
-    Q5: {s5}
-    Q6: {s6}
-    
-    TASK:
-    1. Identify 6 advanced B2-level vocabulary items relevant to the student's answers.
-    2. Create 6 interview questions that:
-       - Use Passive Voice
-       - Naturally incorporate the 6 vocabulary items (one per question)
-       - Reference specific details from the student's survey answers
-    
-    Return STRICT JSON only:
-    {
-      "vocab_used": ["deploy a solution", "authenticate users", "encrypt data", "monitor activity", "optimize performance", "retrieve information"],
-      "iq1": "You mentioned using [specific app/device]. How is it ______ (passive) by developers to ______ (vocab item 1)?",
-      "iq2": "When you ______ (vocab item 2), what measures are taken to ensure your data is ______ (passive)?",
-      "iq3": "How often are your devices ______ (passive) when you need to ______ (vocab item 3)?",
-      "iq4": "Why is it important that personal information is ______ (passive) before it is ______ (vocab item 4)?",
-      "iq5": "How are digital boundaries ______ (passive) by you to ______ (vocab item 5)?",
-      "iq6": "In the future, do you think technology will be ______ (passive) to ______ (vocab item 6)?"
-    }
-
   final_grade: |
-    You are an expert English tutor. Evaluate the student's 6 interview answers.
-    Vocabulary used in questions: {vocab_used}
+    You are an expert English tutor. Evaluate the student's 6 interview answers about tech habits.
+    Student is 18 years old, math major, B1 level targeting B2.
+    
     Student answers:
-    1: {i1}
-    2: {i2}
-    3: {i3}
-    4: {i4}
-    5: {i5}
-    6: {i6}
+    1 (Screen Time): {i1}
+    2 (Cybersecurity): {i2}
+    3 (Data Protection): {i3}
+    4 (Digital Boundaries): {i4}
+    5 (Tech & Studies): {i5}
+    6 (Digital Detox): {i6}
     
     Evaluate on two criteria:
-    1. ACCURACY (0-20): grammar (especially Passive Voice), lexical precision.
-    2. FLUENCY (0-10): coherence, discourse markers, naturalness.
+    1. ACCURACY (0-25): grammar (tenses, articles, prepositions), lexical precision, B2 vocabulary usage
+    2. FLUENCY (0-15): coherence, discourse markers, naturalness, length of answers
     
     Return STRICT JSON only:
     {
@@ -359,55 +250,59 @@ prompts:
       "errors": [{"original": "...", "corrected": "...", "explanation": "..."}],
       "profile_notes": {
         "estimated_level": "B1 | B1+ | B2",
-        "vocabulary_gaps": ["..."]
+        "vocabulary_gaps": ["..."],
+        "grammar_gaps": ["..."]
       }
     }
+    Rules:
+    - errors: exactly 2-3 items, original — verbatim quote from answers
+    - strengths/improvements: 2-3 items each
+    - All feedback in ENGLISH
 
   report: |
     You are an expert tutor. Create a final Markdown report.
     STUDENT: {student_context}
-    SURVEY ANSWERS: Q1: {s1}, Q2: {s2}, Q3: {s3}, Q4: {s4}, Q5: {s5}, Q6: {s6}
-    INTERVIEW QUESTIONS: Q1: {iq1}, Q2: {iq2}, Q3: {iq3}, Q4: {iq4}, Q5: {iq5}, Q6: {iq6}
+    STUDENT ANSWERS:
+    1: {i1}
+    2: {i2}
+    3: {i3}
+    4: {i4}
+    5: {i5}
+    6: {i6}
     GRADE: {final_grade}
     
     Sections:
     ## 1. Grammar Keys (Passive Voice)
-    Brief table of correct answers for the 10 grammar questions.
-    ## 2. Survey Responses
-    List all 6 survey questions with student's answers.
-    ## 3. Interview Transcript (Corrected)
-    Rewrite each of the 6 interview answers as natural B2-level English, demonstrating ideal use of Passive Voice.
-    ## 4. Performance Metrics
+    Brief table of correct answers for the 10 grammar questions (g1-g10) with explanations for 2-3 tricky cases.
+    
+    ## 2. Interview Transcript (Corrected)
+    Rewrite each of the 6 interview answers as natural B2-level English, preserving meaning and demonstrating ideal grammar and vocabulary.
+    
+    ## 3. Performance Metrics
     | Criterion | Score | Max |
     |-----------|-------|-----|
-    | Grammar | 10 | 10 |
-    | Interview Accuracy | {final_grade.accuracy} | 20 |
-    | Interview Fluency | {final_grade.fluency} | 10 |
+    | Grammar (Passive Voice) | 10 | 10 |
+    | Interview Accuracy | {final_grade.accuracy} | 25 |
+    | Interview Fluency | {final_grade.fluency} | 15 |
     | **TOTAL** | **{final_grade.total}** | **50** |
-    ## 5. Detailed Feedback
+    
+    ## 4. Detailed Feedback
     **Strengths**: {final_grade.strengths}
     **Areas for Improvement**: {final_grade.improvements}
+    
+    ## 5. Personalized Vocabulary Upgrade
+    Based on the student's answers, suggest 6-8 advanced B2-level words/collocations related to technology that the student should learn. For each word provide:
+    - Word/phrase
+    - Definition (in English)
+    - Example sentence
+    Focus on words that would naturally fit the topics discussed (screen time, cybersecurity, data privacy, digital boundaries, etc.).
+    
     Output ONLY the Markdown.
 
 schemas:
-  survey_generate:
-    q1: "str"
-    q2: "str"
-    q3: "str"
-    q4: "str"
-    q5: "str"
-    q6: "str"
-  interview_generate:
-    vocab_used: "list"
-    iq1: "str"
-    iq2: "str"
-    iq3: "str"
-    iq4: "str"
-    iq5: "str"
-    iq6: "str"
   final_grade:
-    accuracy: "int 0..20"
-    fluency: "int 0..10"
+    accuracy: "int 0..25"
+    fluency: "int 0..15"
     total: "int 0..50"
     strengths: "list"
     improvements: "list"
@@ -415,12 +310,13 @@ schemas:
     profile_notes:
       estimated_level: "str"
       vocabulary_gaps: "list"
+      grammar_gaps: "list"
   report:
     grammar_keys: "str"
-    survey_responses: "str"
     corrected_interview: "list"
     metrics: "str"
     feedback: "str"
+    vocab_upgrade: "list"
 
 templates:
   final_md: |
@@ -430,17 +326,20 @@ templates:
     ## 1. Grammar Keys (Passive Voice)
     {report.grammar_keys}
     
-    ## 2. Survey Responses
-    {report.survey_responses}
-    
-    ## 3. Interview Transcript (Corrected)
+    ## 2. Interview Transcript (Corrected)
     {for i, c in report.corrected_interview}**Q{i}.** {c}{end}
     
-    ## 4. Performance Metrics
+    ## 3. Performance Metrics
     {report.metrics}
     
-    ## 5. Detailed Feedback
+    ## 4. Detailed Feedback
     {report.feedback}
+    
+    ## 5. Personalized Vocabulary Upgrade
+    {for v in report.vocab_upgrade}
+    **{v.word}** — {v.definition}
+    *Example: {v.example}*
+    {end}
     
   teacher_meta: |
     ### For teacher only
