@@ -143,7 +143,6 @@ def compute_sha256(content):
     return hashlib.sha256(content).hexdigest()
 
 def validate_answer(answer, min_words=1, russian_threshold=0.3):
-    # For pilot: accept any answer, just flag if too short or Russian
     flags = []
     if len(answer.split()) < min_words:
         flags.append("too_short_accepted")
@@ -222,7 +221,6 @@ def load_template_and_unit(template_file, unit_config_file):
     template['meta']['title'] = template['meta']['title'].replace('{{UNIT_TITLE}}', unit_config['title'])
     template['student_context']['topic'] = template['student_context']['topic'].replace('{{UNIT_TOPIC}}', unit_config['topic'])
     
-    # Подставляем названия разделов и grammar во все строки шаблона
     replacements = {
         '{{UNIT_TITLE}}': unit_config['title'],
         '{{UNIT_TOPIC}}': unit_config['topic'],
@@ -268,7 +266,7 @@ def render_question_step(step, min_words=1, audio_enabled=False):
     flags = []
     
     if audio_enabled and whisper_client:
-        st.info("🎙️ Please record your answer in English (30-90 seconds).")
+        st.info("️ Please record your answer in English (30-90 seconds).")
         audio_value = st.audio_input("Record your answer", key=f"audio_{step['id']}")
         if audio_value:
             with st.spinner("Transcribing audio..."):
@@ -286,18 +284,21 @@ def render_question_step(step, min_words=1, audio_enabled=False):
         st.caption("Or type your answer:")
         text_answer = st.text_area("Text answer (optional):", height=100, key=f"text_{step['id']}")
         if st.button("Submit text answer", type="primary", key=f"submit_text_{step['id']}"):
-            if text_answer.strip():
+            if text_answer and text_answer.strip():
                 flags, _ = validate_answer(text_answer, min_words=min_words)
                 user_answer = text_answer
+            else:
+                st.warning("Please enter some text before submitting.")
     else:
         if audio_enabled and not whisper_client:
             st.warning("⚠️ Audio recording requires OPENAI_API_KEY. Please type your answer.")
-        user_answer = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
+        text_input = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
         if st.button("Submit answer", type="primary", key=f"submit_{step['id']}"):
-            if user_answer and user_answer.strip():
-                flags, _ = validate_answer(user_answer, min_words=min_words)
+            if text_input and text_input.strip():
+                flags, _ = validate_answer(text_input, min_words=min_words)
+                user_answer = text_input
             else:
-                user_answer = None
+                st.warning("Please enter some text before submitting.")
     
     if user_answer is not None:
         return user_answer, flags
@@ -397,7 +398,7 @@ def render_message_step(step):
 # ==================== MAIN APP ====================
 
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title(" Welcome to AI Tutor Platform")
+    st.title("🎓 Welcome to AI Tutor Platform")
     st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
@@ -405,7 +406,7 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
+        if st.button("👩🏫 I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -658,7 +659,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("👩🏫 Teacher Dashboard")
+        st.title("👩‍🏫 Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
@@ -675,7 +676,7 @@ elif st.session_state.get("mode") == "admin":
                     df['fluency'] = df['grade_json'].apply(lambda x: x.get('fluency') if isinstance(x, dict) else None)
                     df['vocab_score'] = df['grade_json'].apply(lambda x: x.get('vocab_score') if isinstance(x, dict) else None)
                     df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
-                st.subheader(" Summary Table (Pivot)")
+                st.subheader("📊 Summary Table (Pivot)")
                 if 'total' in df.columns and df['total'].notna().any():
                     pivot_values = 'total'
                 elif 'vocab_score' in df.columns and df['vocab_score'].notna().any():
@@ -707,7 +708,7 @@ elif st.session_state.get("mode") == "admin":
                         except:
                             st.write("Failed to load")
                 st.markdown("---")
-                st.subheader("📥 Export to CSV")
+                st.subheader(" Export to CSV")
                 export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
                 st.dataframe(export_df, use_container_width=True)
                 csv = export_df.to_csv(index=False).encode('utf-8')
