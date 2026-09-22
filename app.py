@@ -80,17 +80,13 @@ def count_tokens_in_response(response):
         pass
     return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
-def call_llm_with_retry(prompt, max_retries=2, temperature=0.2, system_prompt=None):
+def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "text": system_prompt})
-            messages.append({"role": "user", "text": prompt})
             response = yandex_client.chat.completions.create(
                 model=f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
-                messages=messages,
+                messages=[{"role": "user", "text": prompt}],
                 temperature=temperature
             )
             content = response.choices[0].message.content
@@ -101,17 +97,6 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2, system_prompt=No
             if attempt < max_retries:
                 time.sleep(2 ** attempt)
     raise RuntimeError(f"LLM failed after {max_retries} retries: {last_error}")
-
-def call_llm_with_messages(messages, temperature=0.3):
-    """Вызов LLM с полной историей сообщений (для чата)."""
-    response = yandex_client.chat.completions.create(
-        model=f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
-        messages=messages,
-        temperature=temperature
-    )
-    content = response.choices[0].message.content
-    tokens = count_tokens_in_response(response)
-    return content, tokens
 
 def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
     for attempt in range(max_retries + 1):
@@ -218,7 +203,8 @@ def load_template_and_unit(template_file, unit_config_file):
         '{{UNIT_TOPIC}}': unit_config['topic'],
         '{{UNIT_GRAMMAR}}': unit_config.get('grammar', ''),
         '{{SECTION_1_TITLE}}': unit_config.get('section_1_title', 'Grammar'),
-        '{{SECTION_2_TITLE}}': unit_config.get('section_2_title', 'Academic Writing'),
+        '{{SECTION_2_TITLE}}': unit_config.get('section_2_title', 'Reading'),
+        '{{SECTION_3_TITLE}}': unit_config.get('section_3_title', 'Essay'),
     }
     
     def replace_in_obj(obj):
@@ -283,62 +269,6 @@ def render_multiple_choice_step(step):
         }
     return None
 
-def render_essay_step(step, task_data):
-    """Интерактивный чат с LLM для написания эссе по протоколу Task #1.5"""
-    st.markdown(f"**{step.get('topic', 'Academic Writing')}**")
-    st.info("📝 Interactive essay writing session. The tutor will guide you through 5 iterations. Write 'Start!' to begin.")
-    
-    chat_key = f"essay_chat_{step['id']}"
-    if chat_key not in st.session_state:
-        st.session_state[chat_key] = []
-        st.session_state[chat_key].append({
-            "role": "assistant",
-            "content": "Welcome! I'm your academic writing tutor. We'll work on an essay about Negative Sampling through 5 iterations.\n\n**To begin, please type exactly: Start!**"
-        })
-    
-    system_prompt = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
-    
-    # Display history
-    chat_container = st.container()
-    with chat_container:
-        for msg in st.session_state[chat_key]:
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-    
-    # Input
-    user_input = st.chat_input("Type your message here...", key=f"essay_input_{step['id']}")
-    
-    if user_input:
-        st.session_state[chat_key].append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
-        
-        # Build messages for LLM
-        messages = [{"role": "system", "text": system_prompt}]
-        for m in st.session_state[chat_key]:
-            messages.append({"role": m["role"], "text": m["content"]})
-        
-        with st.spinner("🧠 Tutor is thinking..."):
-            try:
-                response, tokens = call_llm_with_messages(messages, temperature=0.3)
-                st.session_state[chat_key].append({"role": "assistant", "content": response})
-                with st.chat_message("assistant"):
-                    st.markdown(response)
-            except Exception as e:
-                error_msg = f"⚠️ Error: {e}"
-                st.session_state[chat_key].append({"role": "assistant", "content": error_msg})
-                with st.chat_message("assistant"):
-                    st.markdown(error_msg)
-        
-        st.rerun()
-    
-    # Finish button
-    st.markdown("---")
-    if st.button("✅ Finish essay session and proceed to grading", type="primary", key=f"finish_essay_{step['id']}"):
-        return st.session_state[chat_key]
-    
-    return None
-
 def render_llm_step(step, task_data, answers, profile, student_context, unit_config=None):
     prompt_template = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
     context = {
@@ -350,10 +280,7 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
         context["unit_topic"] = unit_config.get("topic", "")
     
     for key, value in answers.items():
-        if isinstance(value, list):
-            context[key] = "\n\n".join([f"[{m['role'].upper()}]: {m['content']}" for m in value])
-        else:
-            context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     for key, value in student_context.items():
         if key not in context:
             context[key] = str(value)
@@ -379,23 +306,16 @@ def render_message_step(step):
             return btn
     return None
 
-def prepare_context_for_report(task_data, answers, llm_results, student_context, profile):
-    """Подготовка контекста с плоскими ключами для str.format()"""
+def prepare_context_for_report(answers, llm_results, student_context, profile):
     context = {
         "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
         "profile_block": format_profile_for_prompt(profile),
         "answers": json.dumps(answers, ensure_ascii=False),
     }
     
-    # Answers — плоские ключи
     for key, value in answers.items():
-        if isinstance(value, list):
-            context[key] = "\n\n".join([f"[{m['role'].upper()}]: {m['content']}" for m in value])
-            context[f"{key}_raw"] = json.dumps(value, ensure_ascii=False)
-        else:
-            context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     
-    # LLM results — плоские ключи с префиксом
     for key, value in llm_results.items():
         if isinstance(value, dict):
             context[key] = json.dumps(value, ensure_ascii=False)
@@ -405,9 +325,6 @@ def prepare_context_for_report(task_data, answers, llm_results, student_context,
                     context[flat_key] = json.dumps(v, ensure_ascii=False)
                 else:
                     context[flat_key] = str(v)
-        elif isinstance(value, list):
-            context[key] = "\n\n".join([f"[{m['role'].upper()}]: {m['content']}" for m in value])
-            context[f"{key}_raw"] = json.dumps(value, ensure_ascii=False)
         else:
             context[key] = str(value)
     
@@ -428,7 +345,7 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("‍🏫 I'm a teacher", use_container_width=True):
+        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -561,15 +478,6 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
             
-            elif step_type == "essay":
-                result = render_essay_step(current_step, task_data)
-                if result is not None:
-                    save_as_key = current_step.get("save_as", current_step["id"])
-                    st.session_state.answers[current_step["id"]] = result
-                    st.session_state.llm_results[save_as_key] = result
-                    st.session_state.current_step_idx = step_idx + 1
-                    st.rerun()
-            
             elif step_type == "llm":
                 student_context = task_data.get("student_context", {})
                 result, tokens = render_llm_step(
@@ -610,20 +518,11 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 student_context = task_data.get("student_context", {})
                 
                 context = prepare_context_for_report(
-                    task_data,
                     st.session_state.answers,
                     st.session_state.llm_results,
                     student_context,
                     st.session_state.get("student_profile", {})
                 )
-                
-                # Добавляем вычисляемые поля
-                if "final_grade_total" in context:
-                    try:
-                        essay_total = int(context["final_grade_total"])
-                        context["final_grade_total_plus_10"] = str(essay_total + 10)
-                    except:
-                        context["final_grade_total_plus_10"] = "N/A"
                 
                 report_prompt = format_prompt_with_context(report_prompt_template, context)
                 try:
@@ -682,7 +581,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("👩‍🏫 Teacher Dashboard")
+        st.title("👩‍ Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
@@ -695,16 +594,15 @@ elif st.session_state.get("mode") == "admin":
             else:
                 if 'grade_json' in df.columns:
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
-                    df['task_achievement'] = df['grade_json'].apply(lambda x: x.get('task_achievement') if isinstance(x, dict) else None)
-                    df['coherence'] = df['grade_json'].apply(lambda x: x.get('coherence') if isinstance(x, dict) else None)
-                    df['lexical_resource'] = df['grade_json'].apply(lambda x: x.get('lexical_resource') if isinstance(x, dict) else None)
-                    df['essay_grammar'] = df['grade_json'].apply(lambda x: x.get('grammar') if isinstance(x, dict) else None)
+                    df['reading_score'] = df['grade_json'].apply(lambda x: x.get('reading_score') if isinstance(x, dict) else None)
+                    df['essay_task_achievement'] = df['grade_json'].apply(lambda x: x.get('essay_task_achievement') if isinstance(x, dict) else None)
+                    df['essay_language'] = df['grade_json'].apply(lambda x: x.get('essay_language') if isinstance(x, dict) else None)
                     df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
                 st.subheader("📊 Summary Table (Pivot)")
                 if 'total' in df.columns and df['total'].notna().any():
                     pivot_values = 'total'
                 else:
-                    pivot_values = 'task_achievement'
+                    pivot_values = 'reading_score'
                 pivot = df.pivot_table(index=['full_name'], columns='task_id', values=pivot_values, aggfunc='first')
                 st.dataframe(pivot.fillna("—"), use_container_width=True)
                 st.markdown("---")
@@ -713,11 +611,10 @@ elif st.session_state.get("mode") == "admin":
                     with st.expander(f"{row.get('full_name')} - {row.get('task_id')} - {row.get('status')}"):
                         col1, col2 = st.columns(2)
                         with col1:
-                            if pd.notna(row.get('task_achievement')): st.metric("Task Achievement", f"{row['task_achievement']}/10")
-                            if pd.notna(row.get('coherence')): st.metric("Coherence", f"{row['coherence']}/10")
-                            if pd.notna(row.get('lexical_resource')): st.metric("Lexical Resource", f"{row['lexical_resource']}/10")
-                            if pd.notna(row.get('essay_grammar')): st.metric("Essay Grammar", f"{row['essay_grammar']}/10")
-                            if pd.notna(row.get('total')): st.metric("Essay Total", f"{row['total']}/40")
+                            if pd.notna(row.get('reading_score')): st.metric("Reading", f"{row['reading_score']}/15")
+                            if pd.notna(row.get('essay_task_achievement')): st.metric("Essay Task", f"{row['essay_task_achievement']}/15")
+                            if pd.notna(row.get('essay_language')): st.metric("Essay Language", f"{row['essay_language']}/10")
+                            if pd.notna(row.get('total')): st.metric("Total", f"{row['total']}/50")
                         with col2:
                             st.write(f"**Status:** {row.get('status')}")
                             st.write(f"**Tokens:** {row.get('token_usage')}")
@@ -727,13 +624,7 @@ elif st.session_state.get("mode") == "admin":
                             answers = json.loads(row['answers']) if pd.notna(row['answers']) and isinstance(row['answers'], str) else row['answers']
                             if isinstance(answers, dict):
                                 for q_id, answer in answers.items():
-                                    if isinstance(answer, list):
-                                        st.markdown(f"**{q_id} (essay session, {len(answer)} messages):**")
-                                        with st.expander("View chat transcript"):
-                                            for msg in answer:
-                                                st.markdown(f"**{msg['role']}:** {msg['content']}")
-                                    else:
-                                        st.markdown(f"**{q_id}:** {answer}")
+                                    st.markdown(f"**{q_id}:** {answer}")
                         except:
                             st.write("Failed to load")
                 st.markdown("---")
