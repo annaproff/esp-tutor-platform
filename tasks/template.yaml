@@ -29,7 +29,6 @@ steps:
     buttons: ["Start"]
     next: g1
 
-  # === PART 1: GRAMMAR (10 pts) ===
   - id: g1
     type: multiple_choice
     topic: "Present Simple Passive"
@@ -150,38 +149,44 @@ steps:
     correct: D
     next: r1
 
-  # === PART 2: READING COMPREHENSION (15 pts) ===
   - id: r1
     type: question
     topic: "Reading Q1"
-    say: "According to the article, what year does the earliest use of word representations date back to?"
+    say: |
+      Based on the article "Distributed Representations of Words and Phrases" (Mikolov et al., 2013):
+      https://arxiv.org/abs/1310.4546
+      
+      What year does the earliest use of word representations date back to?
     next: r2
 
   - id: r2
     type: question
     topic: "Reading Q2"
-    say: "Approximately how many words can an optimized single-machine implementation train in one day?"
+    say: |
+      According to the article, approximately how many words can an optimized single-machine implementation train in one day?
     next: r3
 
   - id: r3
     type: question
     topic: "Reading Q3"
-    say: "What is the mathematical formula used to calculate the probability of discarding a word during subsampling?"
+    say: |
+      What is the mathematical formula used to calculate the probability of discarding a word during subsampling?
     next: r4
 
   - id: r4
     type: question
     topic: "Reading Q4"
-    say: "What is the typical value of the chosen threshold t in the subsampling formula?"
+    say: |
+      What is the typical value of the chosen threshold t in the subsampling formula?
     next: r5
 
   - id: r5
     type: question
     topic: "Reading Q5"
-    say: "What is the dimensionality of the vectors used in the experiments summarized in Table 1?"
+    say: |
+      What is the dimensionality of the vectors used in the experiments summarized in Table 1?
     next: essay_write
 
-  # === PART 3: OPINION ESSAY (25 pts) ===
   - id: essay_write
     type: question
     topic: "Opinion Essay"
@@ -278,17 +283,21 @@ prompts:
     - All feedback in ENGLISH
 
   report: |
-    You are an expert tutor. Create a final Markdown report.
+    You are an expert tutor. Create a final Markdown report combining grammar test results, reading comprehension, and opinion essay.
     
     STUDENT: {student_context}
+    STUDENT NAME: {student_name}
+    DATE: {date}
     GRAMMAR SCORE: 10/10 (from multiple-choice test)
     
     READING ANSWERS:
-    Q1: {r1}
-    Q2: {r2}
-    Q3: {r3}
-    Q4: {r4}
-    Q5: {r5}
+    Q1 (year): {r1}
+    Q2 (words per day): {r2}
+    Q3 (formula): {r3}
+    Q4 (threshold t): {r4}
+    Q5 (dimensionality): {r5}
+    
+    Correct answers: Q1: 1986, Q2: More than 100 billion words, Q3: P(wi) = 1 - sqrt(t / f(wi)), Q4: Around 10^-5, Q5: 300-dimensional vectors
     
     ESSAY:
     {essay_write}
@@ -302,11 +311,13 @@ prompts:
     Reading Feedback: {final_grade_reading_feedback}
     Essay Strengths: {final_grade_essay_strengths}
     Essay Improvements: {final_grade_essay_improvements}
-    Recommended Vocabulary: {final_grade_recommended_vocabulary}
     
-    The report must contain:
+    Create a comprehensive Markdown report with these sections:
+    # Digital Presentation: {{UNIT_TITLE}}
+    Student: {student_name} · Date: {date}
+    
     ## 1. Grammar Keys (Passive Voice)
-    Brief table of correct answers for the 10 grammar questions with explanations for 2-3 tricky cases.
+    Brief table of correct answers for the 10 grammar questions (g1-g10) with explanations for 2-3 tricky cases.
     
     ## 2. Reading Comprehension Key
     List all 5 questions with correct answers and brief explanations.
@@ -329,12 +340,16 @@ prompts:
     **Areas for Improvement**: {final_grade_essay_improvements}
     
     ## 6. Personalized Vocabulary Upgrade
-    Based on the student's essay and reading answers, suggest 6-8 advanced B2-C1 academic words/collocations related to NLP, machine learning, and mathematical writing that the student should learn next. For each provide:
+    Based on the student's essay and reading answers, suggest 6-8 advanced B2-C1 academic words/collocations related to NLP, machine learning, and mathematical writing. For each provide:
     - Word/phrase
     - Definition (in English)
     - Example sentence in academic context
     
-    Output ONLY the Markdown.
+    Return STRICT JSON only:
+    {{
+      "full_report": "# Digital Presentation: {{UNIT_TITLE}}\nStudent: {student_name} · Date: {date}\n\n## 1. Grammar Keys...\n..."
+    }}
+    Output ONLY the JSON with the complete Markdown report in the "full_report" field.
 
 schemas:
   final_grade:
@@ -352,38 +367,11 @@ schemas:
       vocabulary_gaps: "list"
       grammar_gaps: "list"
   report:
-    grammar_keys: "str"
-    reading_key: "str"
-    student_essay: "str"
-    metrics: "str"
-    feedback: "str"
-    vocab_upgrade: "list"
+    full_report: "str"
 
 templates:
   final_md: |
-    # Digital Presentation: {{UNIT_TITLE}}
-    Student: {student_name} · Date: {date}
-    
-    ## 1. Grammar Keys (Passive Voice)
-    {report_grammar_keys}
-    
-    ## 2. Reading Comprehension Key
-    {report_reading_key}
-    
-    ## 3. Student's Essay
-    {report_student_essay}
-    
-    ## 4. Performance Metrics
-    {report_metrics}
-    
-    ## 5. Detailed Feedback
-    {report_feedback}
-    
-    ## 6. Personalized Vocabulary Upgrade
-    {for v in report_vocab_upgrade}
-    **{v.word}** — {v.definition}
-    *Example: {v.example}*
-    {end}
+    {report_full_report}
     
   teacher_meta: |
     ### For teacher only
