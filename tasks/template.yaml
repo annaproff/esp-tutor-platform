@@ -283,37 +283,42 @@ prompts:
     - All feedback in ENGLISH
 
   report: |
-    You are an expert English tutor. Give personalized feedback to the student based on their results.
+    You are a friendly English tutor. Write a personalized feedback message to the student based on their results.
     
-    STUDENT CONTEXT: {student_context}
-    GRAMMAR SCORE: 10/10
+    STUDENT: 18 years old, math major, B1-B2 level.
     
-    READING ANSWERS:
-    Q1: {r1}
-    Q2: {r2}
-    Q3: {r3}
-    Q4: {r4}
-    Q5: {r5}
-    Correct: Q1: 1986, Q2: >100 billion, Q3: P(wi) = 1 - sqrt(t / f(wi)), Q4: ~10^-5, Q5: 300
+    GRAMMAR TEST: 10/10 (all correct!)
+    
+    READING COMPREHENSION:
+    Student's answers:
+    Q1 (year): {r1}
+    Q2 (words per day): {r2}
+    Q3 (formula): {r3}
+    Q4 (threshold t): {r4}
+    Q5 (dimensionality): {r5}
+    
+    Correct answers: Q1: 1986, Q2: More than 100 billion words, Q3: P(wi) = 1 - sqrt(t / f(wi)), Q4: Around 10^-5, Q5: 300-dimensional vectors
+    
+    Reading score: {final_grade_reading_score}/15
+    Reading feedback: {final_grade_reading_feedback}
     
     ESSAY:
     {essay_write}
     
-    GRADE:
-    Reading: {final_grade_reading_score}/15
-    Essay Task: {final_grade_essay_task_achievement}/15
-    Essay Language: {final_grade_essay_language}/10
-    Total: {final_grade_total}/50
+    Essay scores:
+    - Task Achievement: {final_grade_essay_task_achievement}/15
+    - Language: {final_grade_essay_language}/10
     
-    STRENGTHS: {final_grade_essay_strengths}
-    IMPROVEMENTS: {final_grade_essay_improvements}
+    Essay strengths: {final_grade_essay_strengths}
+    Essay improvements: {final_grade_essay_improvements}
     
-    Please write a personalized feedback message in English. Include:
-    1. Brief analysis of their reading and essay results.
-    2. Specific recommendations for grammar (especially Passive Voice).
-    3. 6-8 advanced B2-C1 words/collocations related to NLP/math they should learn (with definitions and examples).
-    4. A motivating conclusion.
-    Write simply and clearly, like a tutor to a student. No complex markdown structures, just clear text.
+    Please write a warm, personalized feedback message in English. Include:
+    1. Brief analysis of their reading and essay results (what they did well, what needs work)
+    2. Specific recommendations for grammar (especially Passive Voice)
+    3. 6-8 advanced B2-C1 words/collocations related to NLP/math they should learn (with definitions and examples)
+    4. A motivating conclusion
+    
+    Write simply and clearly, like a tutor talking to a student. No complex markdown structures, just clear text with basic formatting.
 
 schemas:
   final_grade:
@@ -331,11 +336,11 @@ schemas:
       vocabulary_gaps: "list"
       grammar_gaps: "list"
   report:
-    full_report: "str"
+    feedback_text: "str"
 
 templates:
   final_md: |
-    {report_full_report}
+    {report_feedback_text}
     
   teacher_meta: |
     ### For teacher only
