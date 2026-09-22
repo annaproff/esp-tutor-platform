@@ -1,0 +1,30 @@
+{
+  "unit_number": "1.1-1.3",
+  "title": "Computer Technology: Passive Voice & Tech Habits",
+  "topic": "Computer Technology: Passive Voice, Advanced Vocab, Tech Habits",
+  "grammar": "Passive Voice",
+  "vocab_seed": [
+    "compress",
+    "authenticate",
+    "encrypt",
+    "deploy",
+    "optimize",
+    "monitor",
+    "retrieve",
+    "reboot",
+    "back up",
+    "troubleshoot",
+    "compile",
+    "debug",
+    "allocate",
+    "aggregate"
+  ],
+  "interview_themes": [
+    "screen time",
+    "cybersecurity",
+    "data privacy",
+    "digital boundaries",
+    "tech & studies",
+    "digital detox"
+  ]
+}
