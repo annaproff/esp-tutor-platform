@@ -3,8 +3,7 @@ meta:
   title: "{{UNIT_TITLE}}"
   max_score: 50
   llm_calls: 3
-  est_tokens: "18-22k"
-  est_cost_rub: "15-22"
+  est_tokens: "12-15k"
 student_context:
   age: 18
   major: mathematics
@@ -15,9 +14,6 @@ settings:
     language: en
     min_words: 1
     russian_detect: "cyrillic > 30%"
-  timing:
-    remind_after_hours: 24
-    expire_after_days: 7
   attempts:
     max: 1
 steps:
@@ -25,13 +21,14 @@ steps:
     type: gate
     say: |
       Hi! This is a comprehensive 50-point task.
-      Part 1: Grammar - {{UNIT_GRAMMAR}} (10 MCQs, 10 pts)
-      Part 2: Personalized Vocabulary (10 MCQs, 10 pts)
-      Part 3: Interview (6 questions, 30 pts)
+      Part 1: Grammar - Passive Voice (10 MCQs, 10 pts)
+      Part 2: Personalized Vocabulary (6 expressions)
+      Part 3: Interview (6 audio questions, 30 pts)
       Press Start when you're ready.
     buttons: ["Start"]
     next: g1
 
+  # === ЧАСТЬ 1: ГРАММАТИКА (10 вопросов) ===
   - id: g1
     type: multiple_choice
     topic: "Present Simple Passive"
@@ -152,9 +149,10 @@ steps:
     correct: D
     next: v_q1
 
+  # === ЧАСТЬ 2: ПЕРСОНАЛИЗИРОВАННАЯ ЛЕКСИКА (6 выражений) ===
   - id: v_q1
     type: question
-    topic: "Devices & Operations"
+    topic: "Your Tech World"
     audio: true
     say: "Tell me about the devices you use daily and what you typically do with them. Speak for 30-60 seconds."
     next: v_q2
@@ -173,19 +171,15 @@ steps:
     prompt: prompts.v_generate
     inputs: ["student_context", "answers.v_q1", "answers.v_q2"]
     output: schemas.v_generate
-    checks:
-      - "vocab_list: 6 items"
-      - "vocab_mcq: exactly 10 items"
-      - "interview_questions: exactly 6 items"
-    on_check_fail: "retry 1 time"
     save_as: vocab_context
-    next: v_mcq_task
+    next: v_show
 
-  - id: v_mcq_task
-    type: dynamic_mcq
-    topic: "{{SECTION_2_TITLE}}"
+  - id: v_show
+    type: vocab_list
+    topic: "Your Personalized Vocabulary"
     next: i1
 
+  # === ЧАСТЬ 3: ИНТЕРВЬЮ (6 вопросов с Passive Voice) ===
   - id: i1
     type: question
     topic: "Interview Q1"
@@ -226,7 +220,7 @@ steps:
     topic: "Interview Q6"
     audio: true
     say: "{vocab_context.iq6}"
-    after_save_say: "Thank you! Give me a moment to review your answers and calculate your final score."
+    after_save_say: "Thank you! Calculating your final score..."
     next: final_grade
 
   - id: final_grade
@@ -234,12 +228,8 @@ steps:
     model: yandexgpt-pro
     temperature: 0
     prompt: prompts.final_grade
-    inputs: ["student_context", "vocab_context", "answers", "vocab_grade"]
+    inputs: ["student_context", "vocab_context", "answers"]
     output: schemas.final_grade
-    checks:
-      - "accuracy: int 0..20"
-      - "fluency: int 0..10"
-    on_check_fail: "retry 1 time"
     save_as: final_grade
     next: report
 
@@ -248,12 +238,8 @@ steps:
     model: yandexgpt-pro
     temperature: 0.2
     prompt: prompts.report
-    inputs: ["student_context", "answers", "vocab_context", "vocab_grade", "final_grade"]
+    inputs: ["student_context", "answers", "vocab_context", "final_grade"]
     output: schemas.report
-    checks:
-      - "corrected_interview: exactly 6 items"
-      - "vocab_upgrade: exactly 5 items"
-    on_check_fail: "retry 1 time"
     save_as: report
     next: deliver
 
@@ -263,35 +249,13 @@ steps:
       build_file: templates.final_md
       send_to_teacher: "final_md + teacher_meta"
       send_to_student: "final_md"
-      write_row: "results_table: student | task | grammar | vocab | accuracy | fluency | total | date"
       update_profile: final_grade.profile_notes
     say: "Here is your comprehensive Digital Presentation. Great work!"
     next: done
 
-rubric:
-  grammar_score:
-    "10": "Perfect understanding of Passive Voice forms"
-    "7-9": "Good understanding; minor errors"
-    "4-6": "Basic understanding; several errors"
-    "0-3": "Poor understanding; most answers incorrect"
-  accuracy:
-    "17-20": "Minor errors; B2 vocabulary appropriate; good use of passive and personalized vocab"
-    "13-16": "Several tense/article errors; mostly B1+ lexicon"
-    "9-12": "Regular basic tense errors; noticeable L1 calques"
-    "5-8": "Errors impede understanding; limited vocabulary"
-    "0-4": "Understanding difficult in most answers"
-  fluency:
-    "9-10": "Coherent extended answers; diverse discourse markers"
-    "7-8": "Coherent but markers basic (and, but, because)"
-    "5-6": "Short/choppy answers; few connectors"
-    "3-4": "Isolated phrases without connection"
-    "0-2": "One-word answers"
-
 prompts:
   v_generate: |
-    You are an expert English tutor specializing in vocabulary acquisition.
-    
-    The student has just described their tech habits in two audio recordings (transcribed below).
+    You are an expert English tutor. Based on the student's answers about their devices and apps, generate personalized B2-level vocabulary.
     
     Student's answer about devices:
     {v_q1}
@@ -299,52 +263,33 @@ prompts:
     Student's answer about apps:
     {v_q2}
     
-    TASK 1: Based on what the student said, select 6 advanced B2-level English expressions/collocations that:
-    - Are semantically related to what the student described
-    - Are at B2 level (not too easy, not C2)
-    - Are natural, high-frequency expressions used by native speakers
-    - Cover a mix of verbs, nouns, and phrases
+    TASK: Select 6 advanced B2-level English expressions/collocations that are semantically related to what the student described.
     
-    TASK 2: Create exactly 10 multiple-choice questions to practice these 6 expressions.
-    Each question should test understanding of the expression in context.
-    Format: one expression per question, 4 options (A-D), one correct answer.
-    
-    TASK 3: Create exactly 6 interview questions that:
-    - Use Passive Voice (to practice grammar from Part 1)
-    - Naturally incorporate 1-2 of the 6 new expressions each
-    - Are open-ended and encourage extended answers
-    - Are relevant to the student's tech habits
-    
-    Return STRICT JSON only. No markdown code blocks, no explanations outside JSON.
+    Return STRICT JSON only:
     {
       "vocab_list": [
         {"expression": "deploy a solution", "definition": "to put a plan or system into action", "example": "The company deployed a new solution to handle customer complaints."},
-        ... (exactly 6 items)
+        {"expression": "authenticate users", "definition": "to verify the identity of users", "example": "The app authenticates users through two-factor authentication."}
       ],
-      "vocab_mcq": [
-        {"id": 1, "question": "The IT team had to ______ a new solution to fix the server issue.", "options": {"A": "deploy", "B": "delete", "C": "delay", "D": "describe"}, "correct": "A"},
-        ... (exactly 10 items, each testing one of the 6 expressions)
-      ],
-      "iq1": "How is your favorite app ______ (passive) by its developers to ______ (expression 1)?",
-      "iq2": "...",
-      "iq3": "...",
-      "iq4": "...",
-      "iq5": "...",
-      "iq6": "..."
+      "iq1": "How is your favorite app ______ (passive) by its developers to deploy new features?",
+      "iq2": "What measures are taken to ensure your data is encrypted when you authenticate yourself?",
+      "iq3": "How often are your devices backed up when you perform critical operations?",
+      "iq4": "Why is it important that personal information is monitored before it is shared online?",
+      "iq5": "How are digital boundaries set by you to optimize your screen time?",
+      "iq6": "In the future, do you think human-device interaction will be optimized to retrieve information faster?"
     }
     
     Rules:
+    - Generate exactly 6 expressions with definitions and examples
+    - Interview questions MUST use Passive Voice and incorporate 1-2 expressions from the list
     - All content in ENGLISH
-    - Questions must be natural and engaging
-    - Interview questions MUST use Passive Voice
 
   final_grade: |
     You are an expert English tutor. Evaluate the student's 6 interview answers.
     
-    Personalized vocabulary the student was expected to use:
-    {vocab_list_text}
+    Personalized vocabulary: {vocab_list}
     
-    Student answers (transcribed from audio):
+    Student answers:
     1: {i1}
     2: {i2}
     3: {i3}
@@ -353,56 +298,57 @@ prompts:
     6: {i6}
     
     Evaluate on two criteria:
-    1. ACCURACY (0-20): grammar (especially Passive Voice), lexical precision, attempt to use the 6 personalized expressions
-    2. FLUENCY (0-10): coherence, discourse markers, naturalness, length of answers
+    1. ACCURACY (0-20): grammar (especially Passive Voice), lexical precision
+    2. FLUENCY (0-10): coherence, discourse markers, naturalness
     
-    Return STRICT JSON only, no markdown:
+    Return STRICT JSON only:
     {
       "accuracy": 0,
       "fluency": 0,
+      "total": 0,
       "strengths": ["...", "..."],
       "improvements": ["...", "..."],
       "errors": [{"original": "...", "corrected": "...", "explanation": "..."}],
       "profile_notes": {
-        "recurring_errors": ["..."],
-        "resolved_since_last": ["..."],
         "estimated_level": "B1 | B1+ | B2",
         "vocabulary_gaps": ["..."]
       }
     }
-    Rules:
-    - errors: exactly 2-3 items, original — verbatim quote from answers
-    - strengths/improvements: 2-3 items each
-    - All feedback in ENGLISH
 
   report: |
     You are an expert tutor. Create a final Markdown report.
+    
     STUDENT: {student_context}
-    PERSONALIZED VOCABULARY (6 expressions): {vocab_list_text}
+    PERSONALIZED VOCABULARY: {vocab_list}
     GRADE: {final_grade}
     
-    The report must contain:
+    Sections:
     ## 1. Grammar Keys (Passive Voice)
-    Brief table of correct answers for the 10 grammar questions with explanations for 2-3 tricky cases.
+    Brief table of correct answers for the 10 grammar questions.
+    
     ## 2. Your Personalized Vocabulary (6 expressions)
-    For each expression: definition + example.
-    ## 3. Vocabulary Practice Key
-    List of 10 vocabulary questions with correct answers and brief explanations.
-    ## 4. Interview Transcript (Corrected)
-    Rewrite each of the 6 interview answers as natural B2-level English, preserving meaning and demonstrating ideal use of Passive Voice and the 6 personalized expressions.
-    ## 5. Performance Metrics
-    Table with scores (Grammar /10, Vocab /10, Accuracy /20, Fluency /10, Total /50).
-    ## 6. Detailed Feedback
-    **Strengths**: {strengths}
-    **Areas for Improvement**: {improvements}
-    ## 7. Next Steps
-    5 advanced IT words/collocations the student should study next (with definitions and examples).
+    List each expression with definition and example.
+    
+    ## 3. Interview Transcript (Corrected)
+    Rewrite each of the 6 answers as natural B2-level English, demonstrating ideal use of Passive Voice and the 6 expressions.
+    
+    ## 4. Performance Metrics
+    | Criterion | Score | Max |
+    |-----------|-------|-----|
+    | Grammar | 10 | 10 |
+    | Interview Accuracy | {final_grade.accuracy} | 20 |
+    | Interview Fluency | {final_grade.fluency} | 10 |
+    | **TOTAL** | **{final_grade.total}** | **50** |
+    
+    ## 5. Detailed Feedback
+    **Strengths**: {final_grade.strengths}
+    **Areas for Improvement**: {final_grade.improvements}
+    
     Output ONLY the Markdown.
 
 schemas:
   v_generate:
     vocab_list: "list"
-    vocab_mcq: "list"
     iq1: "str"
     iq2: "str"
     iq3: "str"
@@ -412,12 +358,11 @@ schemas:
   final_grade:
     accuracy: "int 0..20"
     fluency: "int 0..10"
+    total: "int 0..50"
     strengths: "list"
     improvements: "list"
     errors: "list"
     profile_notes:
-      recurring_errors: "list"
-      resolved_since_last: "list"
       estimated_level: "str"
       vocabulary_gaps: "list"
   report:
@@ -426,48 +371,29 @@ schemas:
     corrected_interview: "list"
     metrics: "str"
     feedback: "str"
-    vocab_upgrade: "list"
 
 templates:
   final_md: |
     # Digital Presentation: {{UNIT_TITLE}}
     Student: {student_name} · Date: {date}
-
+    
     ## 1. Grammar Keys (Passive Voice)
     {report.grammar_keys}
-
+    
     ## 2. Your Personalized Vocabulary (6 expressions)
     {report.vocab_keys}
-
-    ## 3. Vocabulary Practice Key
-    {report.vocab_practice_key}
-
-    ## 4. Interview Transcript (Corrected)
+    
+    ## 3. Interview Transcript (Corrected)
     {for i, c in report.corrected_interview}**Q{i}.** {c}{end}
-
-    ## 5. Performance Metrics
-    | Criterion | Score | Max |
-    |-----------|-------|-----|
-    | Grammar (Passive) | 10 | 10 |
-    | Vocabulary (Personalized) | {vocab_grade.vocab_score} | 10 |
-    | Interview Accuracy | {final_grade.accuracy} | 20 |
-    | Interview Fluency | {final_grade.fluency} | 10 |
-    | **TOTAL** | **{final_grade.total}** | **50** |
-
-    ## 6. Detailed Feedback
-    **Strengths**
-    {for s in final_grade.strengths}- {s}{end}
-    **Areas for Improvement**
-    {for i in final_grade.improvements}- {i}{end}
-
-    ## 7. Next Steps
-    {for v in report.vocab_upgrade}- **{v.term}** — {v.definition}
-      *Example: {v.example}*{end}
-
+    
+    ## 4. Performance Metrics
+    {report.metrics}
+    
+    ## 5. Detailed Feedback
+    {report.feedback}
+    
   teacher_meta: |
     ### For teacher only
-    Raw answers (Tests + Interview): {answers_raw}
-    Personalized vocabulary: {vocab_context.vocab_list_text}
-    Flags: {flags}
+    Raw answers: {answers_raw}
     Tokens: {token_usage}
     Hash: {report_hash}
