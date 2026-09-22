@@ -11,13 +11,13 @@ from datetime import datetime
 from openai import OpenAI
 import time
 import io
+import requests
 
 st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide")
 
 YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.environ.get("YANDEX_FOLDER_ID")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
     st.error("Missing environment variables: YANDEX_API_KEY, YANDEX_FOLDER_ID")
@@ -27,10 +27,6 @@ yandex_client = OpenAI(
     api_key=YANDEX_API_KEY,
     base_url="https://llm.api.cloud.yandex.net/foundationModels/v1"
 )
-
-whisper_client = None
-if OPENAI_API_KEY:
-    whisper_client = OpenAI(api_key=OPENAI_API_KEY)
 
 DB_NAME = "tutor.db"
 
@@ -104,30 +100,26 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
                 time.sleep(2 ** attempt)
     raise RuntimeError(f"LLM failed after {max_retries} retries: {last_error}")
 
-def transcribe_audio(audio_bytes):
-    """Transcribe audio using OpenAI Whisper API. Returns text or None."""
-    if not whisper_client:
-        return None
+def transcribe_audio_yandex(audio_bytes):
+    """Transcribe audio using Yandex SpeechKit."""
     try:
-        audio_file = io.BytesIO(audio_bytes)
-        audio_file.name = "recording.webm"
-        transcript = whisper_client.audio.transcriptions.create(
-            model="whisper-1",
-            file=audio_file,
-            language="en"
-        )
-        return transcript.text
+        url = 'https://stt.api.cloud.yandex.net/speech/v1/stt:recognize'
+        headers = {'Authorization': f'Api-Key {YANDEX_API_KEY}'}
+        params = {
+            'folderId': YANDEX_FOLDER_ID,
+            'lang': 'en-US',
+            'audioFormat': 'webm',
+        }
+        response = requests.post(url, headers=headers, params=params, data=audio_bytes, timeout=30)
+        if response.status_code == 200:
+            result = response.json().get('result', '')
+            return result if result else None
+        return None
     except Exception as e:
-        st.error(f"Transcription error: {e}")
+        st.error(f"SpeechKit error: {e}")
         return None
 
 def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
-    """Улучшенный парсер: вырезает markdown блоки и ищет JSON."""
-    # Вырезаем markdown code blocks
-    text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
-    text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
-    text = text.strip()
-    
     for attempt in range(max_retries + 1):
         try:
             json_match = re.search(r'\{.*\}', text, re.DOTALL)
@@ -137,11 +129,8 @@ def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
                 raise ValueError("No JSON object found")
         except Exception as e:
             if attempt < max_retries and prompt_for_retry:
-                retry_prompt = prompt_for_retry + "\n\nIMPORTANT: return ONLY valid raw JSON, no markdown, no explanations."
+                retry_prompt = prompt_for_retry + "\n\nIMPORTANT: return ONLY valid JSON, no explanations."
                 text, _ = call_llm_with_retry(retry_prompt, max_retries=0, temperature=0.0)
-                text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
-                text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
-                text = text.strip()
             else:
                 raise ValueError(f"JSON parse error: {e}")
     return None
@@ -268,19 +257,18 @@ def render_gate_step(step):
     return False
 
 def render_question_step(step, min_words=1, audio_enabled=False):
-    """Рендерит вопрос. Если audio_enabled=True и есть Whisper — показывает аудиозапись + текст."""
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("say"))
     
     user_answer = None
     flags = []
     
-    if audio_enabled and whisper_client:
+    if audio_enabled:
         st.info("🎙️ Please record your answer in English (30-60 seconds).")
         audio_value = st.audio_input("Record your answer", key=f"audio_{step['id']}")
         if audio_value:
-            with st.spinner("🎧 Transcribing audio..."):
-                transcript = transcribe_audio(audio_value.read())
+            with st.spinner("🎧 Transcribing with Yandex SpeechKit..."):
+                transcript = transcribe_audio_yandex(audio_value.read())
             if transcript:
                 st.success("✅ Transcription:")
                 st.write(transcript)
@@ -288,20 +276,18 @@ def render_question_step(step, min_words=1, audio_enabled=False):
                     flags, _ = validate_answer(transcript, min_words=min_words)
                     user_answer = transcript
             else:
-                st.error("Could not transcribe audio. Please try again or use text input below.")
+                st.warning("️ Could not transcribe audio. Please use text input below.")
         
         st.markdown("---")
         st.caption("Or type your answer:")
-        text_answer = st.text_area("Text answer (optional):", height=100, key=f"text_{step['id']}")
+        text_answer = st.text_area("Text answer:", height=100, key=f"text_{step['id']}")
         if st.button("Submit text answer", type="primary", key=f"submit_text_{step['id']}"):
-            if text_answer and text_answer.strip():
+            if text_answer.strip():
                 flags, _ = validate_answer(text_answer, min_words=min_words)
                 user_answer = text_answer
             else:
                 st.warning("Please enter some text before submitting.")
     else:
-        if audio_enabled and not whisper_client:
-            st.warning("⚠️ Audio recording requires OPENAI_API_KEY. Please type your answer.")
         text_input = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
         if st.button("Submit answer", type="primary", key=f"submit_{step['id']}"):
             if text_input and text_input.strip():
@@ -315,7 +301,6 @@ def render_question_step(step, min_words=1, audio_enabled=False):
     return None, []
 
 def render_multiple_choice_step(step):
-    """Стандартный MCQ (для грамматики)."""
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("question"))
     options = step.get("options", {})
@@ -330,95 +315,34 @@ def render_multiple_choice_step(step):
         }
     return None
 
-def render_dynamic_mcq_step(step):
-    """Рендерит 10 вопросов по лексике из vocab_context. Оценка считается в Python."""
-    st.markdown(f"**{step.get('topic', 'Personalized Vocabulary Practice')}**")
+def render_vocab_list_step(step, vocab_context):
+    """Просто показывает список из 6 выражений в Markdown."""
+    st.markdown(f"**{step.get('topic', 'Personalized Vocabulary')}**")
     
-    # Ищем vocab_context в session state
-    vocab_data = st.session_state.get('vocab_context', {})
-    if not vocab_data or 'vocab_mcq' not in vocab_data:
-        vocab_data = st.session_state.llm_results.get('vocab_context', {})
-    if not vocab_data or 'vocab_mcq' not in vocab_data:
-        vocab_data = st.session_state.llm_results.get('v_generate', {})
+    vocab_list = vocab_context.get("vocab_list", [])
+    if not vocab_list:
+        st.error("Vocabulary was not generated. Please contact the teacher.")
+        st.write("Debug:", vocab_context)
+        return
     
-    if 'error' in vocab_data:
-        st.error("❌ AI failed to generate vocabulary questions.")
-        st.write("Error details:", vocab_data['error'])
-        st.info("Please reload the page and try again, or contact the teacher.")
-        return None
+    st.markdown("### 📚 Your Personalized Vocabulary (6 expressions)")
+    st.write("Based on your answers, here are 6 advanced B2-level expressions for you:")
+    st.markdown("---")
     
-    if not vocab_data or 'vocab_mcq' not in vocab_data:
-        st.error("❌ Vocabulary data not found or incomplete.")
-        st.write("**Debug: Available keys in llm_results:**", list(st.session_state.llm_results.keys()))
-        st.write("**Debug: vocab_data content:**", vocab_data)
-        st.info("The AI did not generate the 'vocab_mcq' list correctly. Please try again.")
-        return None
+    for i, item in enumerate(vocab_list, 1):
+        expr = item.get('expression', '')
+        defn = item.get('definition', '')
+        ex = item.get('example', '')
+        st.markdown(f"**{i}. {expr}**")
+        st.write(f"*{defn}*")
+        st.caption(f"Example: {ex}")
+        st.markdown("")
     
-    # Показываем список лексики
-    vocab_list = vocab_data.get('vocab_list', [])
-    if vocab_list:
-        st.markdown("### 📚 Your Personalized Vocabulary (6 expressions)")
-        st.write("Based on your answers, here are 6 advanced expressions for you to learn:")
-        for i, item in enumerate(vocab_list, 1):
-            expr = item.get('expression', '')
-            defn = item.get('definition', '')
-            ex = item.get('example', '')
-            st.markdown(f"**{i}. {expr}** — {defn}")
-            st.caption(f"Example: {ex}")
-        st.markdown("---")
+    st.success("✅ Review these expressions carefully. You'll use them in the interview questions below!")
     
-    mcq_list = vocab_data.get('vocab_mcq', [])
-    st.write(f"Now answer these {len(mcq_list)} questions to practice the expressions above:")
-    
-    answers = {}
-    for q in mcq_list:
-        q_id = q.get('id', 0)
-        question = q.get('question', '')
-        options = q.get('options', {})
-        
-        st.markdown(f"**{q_id}. {question}**")
-        
-        if not options:
-            st.warning(f"No options for question {q_id}")
-            continue
-        
-        display_labels = [f"{k}: {v}" for k, v in options.items()]
-        selected_label = st.radio(f"Select for Q{q_id}", display_labels, key=f"vocab_q_{q_id}")
-        answers[q_id] = {
-            "selected_label": selected_label,
-            "correct": q.get('correct', ''),
-            "question": question
-        }
-    
-    if st.button("Submit Vocabulary Test", type="primary", key=f"submit_vocab_{step['id']}"):
-        score = 0
-        details = []
-        for q in mcq_list:
-            q_id = q.get('id', 0)
-            if q_id not in answers:
-                continue
-            
-            user_data = answers[q_id]
-            selected_key = user_data["selected_label"].split(":")[0].strip()
-            is_correct = selected_key == q.get("correct")
-            
-            if is_correct:
-                score += 1
-            
-            details.append({
-                "id": q_id,
-                "question": user_data.get("question", ""),
-                "student": selected_key,
-                "correct": q.get("correct"),
-                "is_correct": is_correct
-            })
-        
-        result = {"vocab_score": score, "details": details, "total": 10}
-        st.session_state.vocab_grade = result
-        st.success(f"✅ Score: {score}/10")
-        return result
-    
-    return None
+    if st.button("I'm ready for the interview", type="primary", key=f"vocab_ready_{step['id']}"):
+        return True
+    return False
 
 def render_llm_step(step, task_data, answers, profile, student_context, unit_config=None):
     prompt_template = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
@@ -460,7 +384,7 @@ def render_message_step(step):
 # ==================== MAIN APP ====================
 
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title("🎓 Welcome to AI Tutor Platform")
+    st.title(" Welcome to AI Tutor Platform")
     st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
@@ -468,7 +392,7 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("👩🏫 I'm a teacher", use_container_width=True):
+        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -604,11 +528,10 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
             
-            elif step_type == "dynamic_mcq":
-                result = render_dynamic_mcq_step(current_step)
-                if result is not None:
-                    st.session_state.answers[current_step["id"]] = result
-                    st.session_state.llm_results["vocab_grade"] = result
+            elif step_type == "vocab_list":
+                vocab_context = st.session_state.llm_results.get("vocab_context", {})
+                ready = render_vocab_list_step(current_step, vocab_context)
+                if ready:
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
             
@@ -623,11 +546,9 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     unit_config
                 )
                 
-                # Сохраняем под save_as ключом (если есть) или под ID шага
                 save_as_key = current_step.get("save_as", current_step["id"])
                 st.session_state.llm_results[save_as_key] = result
                 
-                # Если это vocab_context — сохраняем также в отдельную переменную для рендеринга
                 if save_as_key == "vocab_context":
                     st.session_state.vocab_context = result
                 
@@ -652,7 +573,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
         else:
             st.subheader("Excellent! All steps completed.")
             if "final_report" not in st.session_state:
-                st.markdown("Generating final report... ")
+                st.markdown("Generating final report... ⏳")
                 report_prompt_template = task_data.get("prompts", {}).get("report", "")
                 student_context = task_data.get("student_context", {})
                 context = {
@@ -721,7 +642,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
 
 elif st.session_state.get("mode") == "admin":
     if "admin_auth" not in st.session_state:
-        st.subheader("🔒 Teacher Login")
+        st.subheader(" Teacher Login")
         pwd = st.text_input("Enter admin password", type="password")
         if st.button("Login"):
             if pwd == ADMIN_PASSWORD:
@@ -745,13 +666,10 @@ elif st.session_state.get("mode") == "admin":
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
                     df['accuracy'] = df['grade_json'].apply(lambda x: x.get('accuracy') if isinstance(x, dict) else None)
                     df['fluency'] = df['grade_json'].apply(lambda x: x.get('fluency') if isinstance(x, dict) else None)
-                    df['vocab_score'] = df['grade_json'].apply(lambda x: x.get('vocab_score') if isinstance(x, dict) else None)
                     df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
                 st.subheader("📊 Summary Table (Pivot)")
                 if 'total' in df.columns and df['total'].notna().any():
                     pivot_values = 'total'
-                elif 'vocab_score' in df.columns and df['vocab_score'].notna().any():
-                    pivot_values = 'vocab_score'
                 else:
                     pivot_values = 'accuracy'
                 pivot = df.pivot_table(index=['full_name'], columns='task_id', values=pivot_values, aggfunc='first')
@@ -764,7 +682,6 @@ elif st.session_state.get("mode") == "admin":
                         with col1:
                             if pd.notna(row.get('accuracy')): st.metric("Accuracy", f"{row['accuracy']}/20")
                             if pd.notna(row.get('fluency')): st.metric("Fluency", f"{row['fluency']}/10")
-                            if pd.notna(row.get('vocab_score')): st.metric("Vocab Score", f"{row['vocab_score']}/10")
                             if pd.notna(row.get('total')): st.metric("Total", f"{row['total']}/50")
                         with col2:
                             st.write(f"**Status:** {row.get('status')}")
