@@ -224,7 +224,7 @@ def load_template_and_unit(template_file, unit_config_file):
         '{{UNIT_TOPIC}}': unit_config['topic'],
         '{{UNIT_GRAMMAR}}': unit_config.get('grammar', ''),
         '{{SECTION_1_TITLE}}': unit_config.get('section_1_title', 'Grammar'),
-        '{{SECTION_2_TITLE}}': unit_config.get('section_2_title', 'Vocabulary Practice'),
+        '{{SECTION_2_TITLE}}': unit_config.get('section_2_title', 'Survey'),
         '{{SECTION_3_TITLE}}': unit_config.get('section_3_title', 'Interview'),
     }
     
@@ -276,7 +276,7 @@ def render_question_step(step, min_words=1, audio_enabled=False):
                     flags, _ = validate_answer(transcript, min_words=min_words)
                     user_answer = transcript
             else:
-                st.warning("️ Could not transcribe audio. Please use text input below.")
+                st.warning("⚠️ Could not transcribe audio. Please use text input below.")
         
         st.markdown("---")
         st.caption("Or type your answer:")
@@ -288,6 +288,7 @@ def render_question_step(step, min_words=1, audio_enabled=False):
             else:
                 st.warning("Please enter some text before submitting.")
     else:
+        st.caption("There are no right or wrong answers — just share your thoughts!")
         text_input = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
         if st.button("Submit answer", type="primary", key=f"submit_{step['id']}"):
             if text_input and text_input.strip():
@@ -314,35 +315,6 @@ def render_multiple_choice_step(step):
             "is_correct": selected_key == step.get("correct")
         }
     return None
-
-def render_vocab_list_step(step, vocab_context):
-    """Просто показывает список из 6 выражений в Markdown."""
-    st.markdown(f"**{step.get('topic', 'Personalized Vocabulary')}**")
-    
-    vocab_list = vocab_context.get("vocab_list", [])
-    if not vocab_list:
-        st.error("Vocabulary was not generated. Please contact the teacher.")
-        st.write("Debug:", vocab_context)
-        return
-    
-    st.markdown("### 📚 Your Personalized Vocabulary (6 expressions)")
-    st.write("Based on your answers, here are 6 advanced B2-level expressions for you:")
-    st.markdown("---")
-    
-    for i, item in enumerate(vocab_list, 1):
-        expr = item.get('expression', '')
-        defn = item.get('definition', '')
-        ex = item.get('example', '')
-        st.markdown(f"**{i}. {expr}**")
-        st.write(f"*{defn}*")
-        st.caption(f"Example: {ex}")
-        st.markdown("")
-    
-    st.success("✅ Review these expressions carefully. You'll use them in the interview questions below!")
-    
-    if st.button("I'm ready for the interview", type="primary", key=f"vocab_ready_{step['id']}"):
-        return True
-    return False
 
 def render_llm_step(step, task_data, answers, profile, student_context, unit_config=None):
     prompt_template = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
@@ -384,11 +356,11 @@ def render_message_step(step):
 # ==================== MAIN APP ====================
 
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title(" Welcome to AI Tutor Platform")
+    st.title("🎓 Welcome to AI Tutor Platform")
     st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("👤 I'm a student", use_container_width=True):
+        if st.button(" I'm a student", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
@@ -416,8 +388,8 @@ if st.session_state.get("mode") == "student" and "student_name" not in st.sessio
                 st.session_state.token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 st.session_state.session_id = None
                 st.session_state.llm_results = {}
-                st.session_state.vocab_context = {}
-                st.session_state.vocab_grade = {}
+                st.session_state.survey_context = {}
+                st.session_state.interview_context = {}
                 st.rerun()
 
 elif st.session_state.get("mode") == "student" and "student_name" in st.session_state:
@@ -528,13 +500,6 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
             
-            elif step_type == "vocab_list":
-                vocab_context = st.session_state.llm_results.get("vocab_context", {})
-                ready = render_vocab_list_step(current_step, vocab_context)
-                if ready:
-                    st.session_state.current_step_idx = step_idx + 1
-                    st.rerun()
-            
             elif step_type == "llm":
                 student_context = task_data.get("student_context", {})
                 result, tokens = render_llm_step(
@@ -549,8 +514,10 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 save_as_key = current_step.get("save_as", current_step["id"])
                 st.session_state.llm_results[save_as_key] = result
                 
-                if save_as_key == "vocab_context":
-                    st.session_state.vocab_context = result
+                if save_as_key == "survey_context":
+                    st.session_state.survey_context = result
+                elif save_as_key == "interview_context":
+                    st.session_state.interview_context = result
                 
                 st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
@@ -642,7 +609,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
 
 elif st.session_state.get("mode") == "admin":
     if "admin_auth" not in st.session_state:
-        st.subheader(" Teacher Login")
+        st.subheader("🔒 Teacher Login")
         pwd = st.text_input("Enter admin password", type="password")
         if st.button("Login"):
             if pwd == ADMIN_PASSWORD:
@@ -651,7 +618,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("👩‍🏫 Teacher Dashboard")
+        st.title("👩🏫 Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
@@ -660,7 +627,7 @@ elif st.session_state.get("mode") == "admin":
             df = pd.read_sql_query("SELECT * FROM sessions ORDER BY full_name, created_at", conn)
             conn.close()
             if df.empty:
-                st.info("ℹ️ No student data yet.")
+                st.info("️ No student data yet.")
             else:
                 if 'grade_json' in df.columns:
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
