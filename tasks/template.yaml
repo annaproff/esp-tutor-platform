@@ -25,9 +25,9 @@ steps:
     type: gate
     say: |
       Hi! This is a comprehensive 50-point task.
-      Part 1: Grammar - {{UNIT_GRAMMAR}} (10 MCQs, 10 pts)
-      Part 2: Personalized Vocabulary (10 MCQs, 10 pts)
-      Part 3: Interview (6 questions, 30 pts)
+      Part 1: {{SECTION_1_TITLE}} (10 MCQs, 10 pts)
+      Part 2: {{SECTION_2_TITLE}} (10 MCQs, 10 pts)
+      Part 3: {{SECTION_3_TITLE}} (6 questions, 30 pts)
       Press Start when you're ready.
     buttons: ["Start"]
     next: g1
@@ -179,9 +179,9 @@ steps:
   - id: v_generate
     type: llm
     model: yandexgpt-pro
-    temperature: 0.2
+    temperature: 0.3
     prompt: prompts.v_generate
-    inputs: ["student_context", "answers.v_q1", "answers.v_q2", "unit_config"]
+    inputs: ["student_context", "answers.v_q1", "answers.v_q2"]
     output: schemas.v_generate
     checks:
       - "vocab_list: 6-8 items"
@@ -193,12 +193,13 @@ steps:
 
   - id: v_mcq_task
     type: dynamic_mcq
-    topic: "Personalized Vocab Practice"
+    topic: "{{SECTION_2_TITLE}}"
     next: i1
 
   - id: i1
     type: question
     topic: "Interview Q1"
+    audio: true
     say: "{vocab_context.iq1}"
     save_as: answers.i1
     next: i2
@@ -206,6 +207,7 @@ steps:
   - id: i2
     type: question
     topic: "Interview Q2"
+    audio: true
     say: "{vocab_context.iq2}"
     save_as: answers.i2
     next: i3
@@ -213,6 +215,7 @@ steps:
   - id: i3
     type: question
     topic: "Interview Q3"
+    audio: true
     say: "{vocab_context.iq3}"
     save_as: answers.i3
     next: i4
@@ -220,6 +223,7 @@ steps:
   - id: i4
     type: question
     topic: "Interview Q4"
+    audio: true
     say: "{vocab_context.iq4}"
     save_as: answers.i4
     next: i5
@@ -227,6 +231,7 @@ steps:
   - id: i5
     type: question
     topic: "Interview Q5"
+    audio: true
     say: "{vocab_context.iq5}"
     save_as: answers.i5
     next: i6
@@ -234,6 +239,7 @@ steps:
   - id: i6
     type: question
     topic: "Interview Q6"
+    audio: true
     say: "{vocab_context.iq6}"
     save_as: answers.i6
     after_save_say: "Thank you! Give me a moment to review your answers and calculate your final score."
@@ -299,36 +305,35 @@ rubric:
 
 prompts:
   v_generate: |
-    Ты экспертный тьютор по английскому языку. На основе ответов студента сгенерируй персонализированный контент.
-    Ответы студента:
-    Устройства и операции: {v_q1}
-    Топ приложений: {v_q2}
-    Тема юнита: {unit_topic}
-    Целевая лексика юнита: {vocab_seed}
+    You are an expert English tutor. Based on the student's answers about their devices and apps, generate personalized content.
+    Student answers:
+    Devices and operations: {v_q1}
+    Top apps: {v_q2}
 
-    Выбери 6-8 слов из списка {vocab_seed}, наиболее релевантных ответам студента.
-    Сгенерируй СТРОГО JSON без markdown:
+    Generate a list of 6-8 advanced B2-level English words/collocations related to technology that are relevant to the student's answers.
+    Then generate STRICT JSON only, no markdown:
     {{
-      "vocab_list_text": "Краткий список из 6-8 продвинутых слов/коллокаций с кратким пояснением на английском.",
-      "vocab_mcq_text": "Текст 10 вопросов множественного выбора (1 балл каждый) в формате:\n1. The system automatically ______ redundant files.\nA) compresses B) compiles C) complies D) compensates\n(Используй выбранную лексику, стилизуя под примеры из конкорданса Merriam-Webster)",
+      "vocab_list_text": "A short list of the 6-8 words with brief explanations in English.",
       "vocab_mcq": [
-        {{"id": 1, "question": "...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "correct": "A"}}
+        {{"id": 1, "question": "Question using one of the words...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "correct": "A"}},
+        {{"id": 2, "question": "...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "correct": "..."}}
       ],
-      "iq1": "Вопрос для интервью 1, использующий Passive Voice и 1-2 слова из выбранной лексики.",
-      "iq2": "Вопрос для интервью 2, использующий Passive Voice и 1-2 слова из выбранной лексики.",
-      "iq3": "Вопрос для интервью 3, использующий Passive Voice и 1-2 слова из выбранной лексики.",
-      "iq4": "Вопрос для интервью 4, использующий Passive Voice и 1-2 слова из выбранной лексики.",
-      "iq5": "Вопрос для интервью 5, использующий Passive Voice и 1-2 слова из выбранной лексики.",
-      "iq6": "Вопрос для интервью 6, использующий Passive Voice и 1-2 слова из выбранной лексики."
+      "iq1": "Interview question 1 using Passive Voice and 1-2 words from the list.",
+      "iq2": "Interview question 2 using Passive Voice and 1-2 words from the list.",
+      "iq3": "Interview question 3 using Passive Voice and 1-2 words from the list.",
+      "iq4": "Interview question 4 using Passive Voice and 1-2 words from the list.",
+      "iq5": "Interview question 5 using Passive Voice and 1-2 words from the list.",
+      "iq6": "Interview question 6 using Passive Voice and 1-2 words from the list."
     }}
-    Правила:
-    - Вопросы интервью должны быть естественными, но целенаправленно провоцировать использование пассива и новой лексики в ответе.
-    - Весь сгенерированный контент на АНГЛИЙСКОМ.
+    Rules:
+    - Generate exactly 10 MCQ questions in vocab_mcq.
+    - Interview questions must elicit Passive Voice.
+    - All content in ENGLISH.
 
   final_grade: |
-    Ты экспертный тьютор по английскому языку. Оцени 6 ответов студента на интервью.
-    Персонализированная лексика, которую ожидалось использовать: {vocab_list_text}
-    Ответы студента:
+    You are an expert English tutor. Evaluate the student's 6 interview answers.
+    Personalized vocabulary expected to be used: {vocab_list_text}
+    Student answers:
     1: {i1}
     2: {i2}
     3: {i3}
@@ -336,11 +341,11 @@ prompts:
     5: {i5}
     6: {i6}
 
-    Оценивай по двум критериям:
-    1. ACCURACY (0-20): грамматика (особенно использование Passive Voice, на который провоцировали вопросы), лексическая точность, попытка использовать персонализированную лексику.
-    2. FLUENCY (0-10): связность, дискурсивные маркеры, естественность, длина ответов.
+    Evaluate on two criteria:
+    1. ACCURACY (0-20): grammar (especially Passive Voice, which the questions were designed to elicit), lexical precision, attempt to use personalized vocabulary.
+    2. FLUENCY (0-10): coherence, discourse markers, naturalness, length of answers.
 
-    Верни СТРОГО JSON без markdown:
+    Return STRICT JSON only, no markdown:
     {{
       "accuracy": 0,
       "fluency": 0,
@@ -354,37 +359,36 @@ prompts:
         "vocabulary_gaps": ["..."]
       }}
     }}
-    Правила:
-    - errors: ровно 2-3 пункта, original — дословная цитата из ответов
-    - strengths/improvements: по 2-3 пункта
-    - Весь фидбек на АНГЛИЙСКОМ
+    Rules:
+    - errors: exactly 2-3 items, original — verbatim quote from answers
+    - strengths/improvements: 2-3 items each
+    - All feedback in ENGLISH
 
   report: |
-    Ты экспертный тьютор. Сформируй финальный Markdown-отчет по комплексному заданию.
-    СТУДЕНТ: {student_context}
-    ПЕРСОНАЛИЗИРОВАННАЯ ЛЕКСИКА: {vocab_list_text}
-    ОЦЕНКА: {final_grade}
+    You are an expert tutor. Create a final Markdown report for the comprehensive task.
+    STUDENT: {student_context}
+    PERSONALIZED VOCABULARY: {vocab_list_text}
+    GRADE: {final_grade}
 
-    Отчет должен содержать:
+    The report must contain:
     ## 1. Grammar Keys (Passive Voice)
-    Краткая таблица правильных ответов на 10 вопросов по грамматике и пояснение 2-3 сложных случаев.
+    Brief table of correct answers for the 10 grammar questions with explanations for 2-3 tricky cases.
     ## 2. Personalized Vocabulary Practice Key
-    Список из 10 вопросов по лексике с правильными ответами и краткими пояснениями (стиль Merriam-Webster).
+    List of 10 vocabulary questions with correct answers and brief explanations.
     ## 3. Interview Transcript (Corrected)
-    Перепиши каждый из 6 ответов интервью как естественный английский уровня B2, сохраняя смысл и демонстрируя идеальное использование Passive Voice и персонализированной лексики.
+    Rewrite each of the 6 interview answers as natural B2-level English, preserving meaning and demonstrating ideal use of Passive Voice and personalized vocabulary.
     ## 4. Performance Metrics
-    Таблица с баллами (Grammar /10, Vocab /10, Accuracy /20, Fluency /10, Total /50).
+    Table with scores (Grammar /10, Vocab /10, Accuracy /20, Fluency /10, Total /50).
     ## 5. Detailed Feedback
     **Strengths**: {strengths}
     **Areas for Improvement**: {improvements}
     ## 6. Personalized Vocabulary Upgrade
-    5 продвинутых слов/коллокаций по теме IT, которые студенту стоит изучить дальше (с дефинициями и примерами).
+    5 advanced IT words/collocations the student should study next (with definitions and examples).
     Output ONLY the Markdown.
 
 schemas:
   v_generate:
     vocab_list_text: "str"
-    vocab_mcq_text: "str"
     vocab_mcq: "list"
     iq1: "str"
     iq2: "str"
@@ -445,9 +449,9 @@ templates:
       *Example: {v.example}*{end}
 
   teacher_meta: |
-    ### Служебное (только для преподавателя)
-    Исходные ответы (Тесты + Интервью): {answers_raw}
-    Персонализированная лексика: {vocab_context.vocab_list_text}
-    Флаги: {flags}
-    Токены: {token_usage}
-    Хеш: {report_hash}
+    ### For teacher only
+    Raw answers (Tests + Interview): {answers_raw}
+    Personalized vocabulary: {vocab_context.vocab_list_text}
+    Flags: {flags}
+    Tokens: {token_usage}
+    Hash: {report_hash}
