@@ -10,21 +10,27 @@ import uuid
 from datetime import datetime
 from openai import OpenAI
 import time
+import io
 
 st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide")
 
 YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.environ.get("YANDEX_FOLDER_ID")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
     st.error("Missing environment variables: YANDEX_API_KEY, YANDEX_FOLDER_ID")
     st.stop()
 
-client = OpenAI(
+yandex_client = OpenAI(
     api_key=YANDEX_API_KEY,
     base_url="https://llm.api.cloud.yandex.net/foundationModels/v1"
 )
+
+whisper_client = None
+if OPENAI_API_KEY:
+    whisper_client = OpenAI(api_key=OPENAI_API_KEY)
 
 DB_NAME = "tutor.db"
 
@@ -84,7 +90,7 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            response = client.chat.completions.create(
+            response = yandex_client.chat.completions.create(
                 model=f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
                 messages=[{"role": "user", "text": prompt}],
                 temperature=temperature
@@ -98,6 +104,23 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
                 time.sleep(2 ** attempt)
     raise RuntimeError(f"LLM failed after {max_retries} retries: {last_error}")
 
+def transcribe_audio(audio_bytes):
+    """Transcribe audio using OpenAI Whisper API. Returns text or None."""
+    if not whisper_client:
+        return None
+    try:
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "recording.webm"
+        transcript = whisper_client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            language="en"
+        )
+        return transcript.text
+    except Exception as e:
+        st.error(f"Transcription error: {e}")
+        return None
+
 def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
     for attempt in range(max_retries + 1):
         try:
@@ -108,7 +131,7 @@ def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
                 raise ValueError("No JSON object found")
         except Exception as e:
             if attempt < max_retries and prompt_for_retry:
-                retry_prompt = prompt_for_retry + "\n\nВАЖНО: верни ТОЛЬКО валидный JSON без пояснений."
+                retry_prompt = prompt_for_retry + "\n\nIMPORTANT: return ONLY valid JSON, no explanations."
                 text, _ = call_llm_with_retry(retry_prompt, max_retries=0, temperature=0.0)
             else:
                 raise ValueError(f"JSON parse error: {e}")
@@ -119,9 +142,15 @@ def compute_sha256(content):
         content = content.encode('utf-8')
     return hashlib.sha256(content).hexdigest()
 
-# ФИКС Б: Убираем ограничения по минимальному количеству слов для апробации
-def validate_answer(answer, min_words=15, russian_threshold=0.3):
-    return [], []
+def validate_answer(answer, min_words=1, russian_threshold=0.3):
+    # For pilot: accept any answer, just flag if too short or Russian
+    flags = []
+    if len(answer.split()) < min_words:
+        flags.append("too_short_accepted")
+    cyrillic_chars = len(re.findall(r'[а-яА-Я]', answer))
+    if cyrillic_chars > len(answer) * russian_threshold:
+        flags.append("russian_accepted")
+    return flags, []
 
 def get_or_create_student(full_name):
     conn = get_db_connection()
@@ -161,7 +190,7 @@ def save_student_profile(student_id, profile_notes):
 
 def format_profile_for_prompt(profile):
     if not profile:
-        return "У студента нет предыдущих заданий — это первая попытка."
+        return "This is the student's first task — no previous profile notes."
     lines = ["Previous profile notes from past tasks:"]
     for key in ["recurring_errors", "resolved_since_last", "estimated_level", "vocabulary_gaps", "grammar_gaps"]:
         if profile.get(key):
@@ -183,6 +212,40 @@ def check_attempts(full_name, task_id, max_attempts=1):
     conn.close()
     return count < max_attempts
 
+def load_template_and_unit(template_file, unit_config_file):
+    with open(template_file, "r", encoding="utf-8") as f:
+        template = yaml.safe_load(f)
+    with open(unit_config_file, "r", encoding="utf-8") as f:
+        unit_config = json.load(f)
+    
+    template['meta']['id'] = template['meta']['id'].replace('{{UNIT_NUMBER}}', unit_config['unit_number'])
+    template['meta']['title'] = template['meta']['title'].replace('{{UNIT_TITLE}}', unit_config['title'])
+    template['student_context']['topic'] = template['student_context']['topic'].replace('{{UNIT_TOPIC}}', unit_config['topic'])
+    
+    # Подставляем названия разделов и grammar во все строки шаблона
+    replacements = {
+        '{{UNIT_TITLE}}': unit_config['title'],
+        '{{UNIT_TOPIC}}': unit_config['topic'],
+        '{{UNIT_GRAMMAR}}': unit_config.get('grammar', ''),
+        '{{SECTION_1_TITLE}}': unit_config.get('section_1_title', 'Grammar'),
+        '{{SECTION_2_TITLE}}': unit_config.get('section_2_title', 'Vocabulary Practice'),
+        '{{SECTION_3_TITLE}}': unit_config.get('section_3_title', 'Interview'),
+    }
+    
+    def replace_in_obj(obj):
+        if isinstance(obj, str):
+            for k, v in replacements.items():
+                obj = obj.replace(k, v)
+            return obj
+        elif isinstance(obj, dict):
+            return {k: replace_in_obj(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [replace_in_obj(item) for item in obj]
+        return obj
+    
+    template = replace_in_obj(template)
+    return template, unit_config
+
 def format_prompt_with_context(prompt_template, context_dict):
     try:
         return prompt_template.format(**context_dict)
@@ -197,32 +260,56 @@ def render_gate_step(step):
         return True
     return False
 
-def render_question_step(step, min_words=15):
+def render_question_step(step, min_words=1, audio_enabled=False):
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("say"))
-    user_answer = st.text_area("Ваш ответ (на английском):", height=150, key=f"answer_{step['id']}")
-    if st.button("Отправить ответ", type="primary"):
-        flags, warnings = validate_answer(user_answer, min_words=min_words)
-        if warnings:
-            for w in warnings:
-                st.warning(w)
-            if st.button("Всё равно отправить", key="force_send"):
-                return user_answer, flags
-        else:
-            return user_answer, []
+    
+    user_answer = None
+    flags = []
+    
+    if audio_enabled and whisper_client:
+        st.info("🎙️ Please record your answer in English (30-90 seconds).")
+        audio_value = st.audio_input("Record your answer", key=f"audio_{step['id']}")
+        if audio_value:
+            with st.spinner("Transcribing audio..."):
+                transcript = transcribe_audio(audio_value.read())
+            if transcript:
+                st.success("Transcription:")
+                st.write(transcript)
+                if st.button("Submit this transcription", type="primary", key=f"submit_audio_{step['id']}"):
+                    flags, _ = validate_answer(transcript, min_words=min_words)
+                    user_answer = transcript
+            else:
+                st.error("Could not transcribe audio. Please try again or use text input below.")
+        
+        st.markdown("---")
+        st.caption("Or type your answer:")
+        text_answer = st.text_area("Text answer (optional):", height=100, key=f"text_{step['id']}")
+        if st.button("Submit text answer", type="primary", key=f"submit_text_{step['id']}"):
+            if text_answer.strip():
+                flags, _ = validate_answer(text_answer, min_words=min_words)
+                user_answer = text_answer
+    else:
+        if audio_enabled and not whisper_client:
+            st.warning("⚠️ Audio recording requires OPENAI_API_KEY. Please type your answer.")
+        user_answer = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
+        if st.button("Submit answer", type="primary", key=f"submit_{step['id']}"):
+            if user_answer and user_answer.strip():
+                flags, _ = validate_answer(user_answer, min_words=min_words)
+            else:
+                user_answer = None
+    
+    if user_answer is not None:
+        return user_answer, flags
     return None, []
 
-# ФИКС А: Исправлен рендеринг вариантов ответов (теперь видно текст)
 def render_multiple_choice_step(step):
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("question"))
     options = step.get("options", {})
-    # Формируем красивые лейблы: "A: is deployed"
     display_labels = [f"{k}: {v}" for k, v in options.items()]
-    selected_label = st.radio("Выберите ответ:", display_labels, key=f"mc_{step['id']}")
-    
-    if st.button("Отправить ответ", type="primary"):
-        # Извлекаем букву (A, B, C, D) из лейбла
+    selected_label = st.radio("Choose your answer:", display_labels, key=f"mc_{step['id']}")
+    if st.button("Submit answer", type="primary", key=f"submit_mc_{step['id']}"):
         selected_key = selected_label.split(":")[0].strip()
         return {
             "selected": options[selected_key],
@@ -231,37 +318,64 @@ def render_multiple_choice_step(step):
         }
     return None
 
-def render_matching_step(step):
-    st.write(step.get("say"))
-    correct_mapping = step.get("correct", {})
-    terms = list(correct_mapping.keys())
-    st.markdown("**Термины:**")
-    for i, term in enumerate(terms, 1):
-        st.write(f"{i}. {term}")
-    st.markdown("**Определения:**")
-    for letter, definition in zip("ABCDEFGH", list(correct_mapping.values())):
-        st.write(f"{letter}. {definition}")
-    user_mapping = {}
-    for term in terms:
-        user_mapping[term] = st.selectbox(f"Сопоставьте: {term}", [""] + list("ABCDEFGH"), key=f"match_{step['id']}_{term}")
-    if st.button("Отправить ответы", type="primary"):
-        return {term: {"user_answer": user_mapping[term], "correct_answer": correct_mapping[term], "is_correct": user_mapping[term] == correct_mapping[term]} for term in terms}
+def render_vocab_mcq_step(step, vocab_context):
+    """Рендерит 10 вопросов по лексике как radio-кнопки. Оценка считается в Python."""
+    st.markdown(f"**{step.get('topic', '')}**")
+    st.write("Based on your answers, here is your personalized vocabulary test. Choose the correct option for each question.")
+    
+    mcq_list = vocab_context.get("vocab_mcq", [])
+    if not mcq_list:
+        st.error("Vocabulary questions were not generated. Please contact the teacher.")
+        return None
+    
+    answers = {}
+    for q in mcq_list:
+        st.markdown(f"**{q['id']}. {q['question']}**")
+        options = q.get("options", {})
+        display_labels = [f"{k}: {v}" for k, v in options.items()]
+        selected_label = st.radio(f"Select for Q{q['id']}", display_labels, key=f"vocab_mc_{step['id']}_{q['id']}")
+        answers[q['id']] = {
+            "selected_label": selected_label,
+            "correct": q.get("correct")
+        }
+    
+    if st.button("Submit Vocabulary Test", type="primary", key=f"submit_vocab_{step['id']}"):
+        score = 0
+        details = []
+        for q in mcq_list:
+            user_data = answers[q['id']]
+            selected_key = user_data["selected_label"].split(":")[0].strip()
+            is_correct = selected_key == q.get("correct")
+            if is_correct:
+                score += 1
+            details.append({
+                "id": q['id'],
+                "student": selected_key,
+                "correct": q.get("correct"),
+                "is_correct": is_correct
+            })
+        return {"vocab_score": score, "details": details, "total": 10}
     return None
 
-def render_llm_step(step, task_data, answers, profile, student_context):
+def render_llm_step(step, task_data, answers, profile, student_context, unit_config=None):
     prompt_template = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
     context = {
         "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
         "profile_block": format_profile_for_prompt(profile),
         "answers": json.dumps(answers, ensure_ascii=False),
     }
+    if unit_config:
+        context["unit_topic"] = unit_config.get("topic", "")
+        context["vocab_seed"] = ", ".join(unit_config.get("vocab_seed", []))
+    
     for key, value in answers.items():
         context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     for key, value in student_context.items():
         if key not in context:
             context[key] = str(value)
+    
     prompt = format_prompt_with_context(prompt_template, context)
-    with st.spinner("🧠 Нейросеть анализирует ваш ответ (это может занять 10-20 секунд)..."):
+    with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
         try:
             response, tokens = call_llm_with_retry(prompt, max_retries=2, temperature=step.get("temperature", 0.2))
             try:
@@ -283,26 +397,26 @@ def render_message_step(step):
 # ==================== MAIN APP ====================
 
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title("🎓 Добро пожаловать в AI Tutor Platform")
-    st.markdown("Выберите режим входа:")
+    st.title(" Welcome to AI Tutor Platform")
+    st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("👤 Я студент", use_container_width=True):
+        if st.button("👤 I'm a student", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("👩‍🏫 Я преподаватель", use_container_width=True):
+        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
 if st.session_state.get("mode") == "student" and "student_name" not in st.session_state:
-    st.subheader("Вход для студента")
+    st.subheader("Student Login")
     with st.form("login_form"):
-        fio = st.text_input("Фамилия и Имя (на русском)", placeholder="Иванов Иван")
-        submitted = st.form_submit_button("Начать занятие")
+        fio = st.text_input("Surname and Name (in Russian)", placeholder="Иванов Иван")
+        submitted = st.form_submit_button("Start session")
         if submitted:
             if not is_valid_russian_name(fio):
-                st.error("Пожалуйста, введите Фамилию и Имя на русском языке.")
+                st.error("Please enter Surname and Name in Russian.")
             else:
                 fio_clean = fio.strip()
                 st.session_state.student_name = fio_clean
@@ -323,59 +437,72 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
         profile = st.session_state.get("student_profile", {})
         if profile:
             level = profile.get("estimated_level", "—")
-            st.caption(f"Уровень: {level}")
-        if st.button("Выйти"):
+            st.caption(f"Level: {level}")
+        if st.button("Logout"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
 
     TASKS_DIR = "tasks"
+    UNITS_DIR = os.path.join(TASKS_DIR, "units")
+    TEMPLATE_FILE = os.path.join(TASKS_DIR, "template.yaml")
+    
     try:
-        task_files = sorted([f for f in os.listdir(TASKS_DIR) if f.endswith('.yaml')])
+        unit_files = sorted([f for f in os.listdir(UNITS_DIR) if f.endswith('.json')])
     except FileNotFoundError:
-        st.error(f"Папка {TASKS_DIR} не найдена!")
+        st.error(f"Units directory not found: {UNITS_DIR}")
         st.stop()
-    if not task_files:
-        st.error("Нет доступных заданий!")
+    
+    if not unit_files:
+        st.error("No available units!")
         st.stop()
-    if "selected_task" not in st.session_state:
-        st.title("Выберите задание:")
-        selected_task = st.selectbox("Доступные задания:", task_files, format_func=lambda x: x.replace('.yaml', '').replace('_', ' ').title())
-        if st.button("Начать задание"):
-            st.session_state.selected_task = selected_task
+    
+    if "selected_unit" not in st.session_state:
+        st.title("Choose your unit:")
+        selected_unit = st.selectbox("Available units:", unit_files, format_func=lambda x: x.replace('.json', '').replace('_', ' ').title())
+        if st.button("Start unit"):
+            st.session_state.selected_unit = selected_unit
             st.rerun()
     else:
-        TASK_FILE_PATH = os.path.join(TASKS_DIR, st.session_state.selected_task)
+        UNIT_FILE_PATH = os.path.join(UNITS_DIR, st.session_state.selected_unit)
+        
         try:
-            with open(TASK_FILE_PATH, "r", encoding="utf-8") as f:
-                task_data = yaml.safe_load(f)
+            task_data, unit_config = load_template_and_unit(TEMPLATE_FILE, UNIT_FILE_PATH)
             steps = task_data.get("steps", [])
             settings = task_data.get("settings", {}).get("answers", {})
-            min_words = settings.get("min_words", 15)
+            min_words = settings.get("min_words", 1)
             max_attempts = task_data.get("settings", {}).get("attempts", {}).get("max", 1)
-            max_score = task_data.get("meta", {}).get("max_score", 30)
+            max_score = task_data.get("meta", {}).get("max_score", 50)
         except FileNotFoundError:
-            st.error(f"Файл задания не найден: {TASK_FILE_PATH}")
+            st.error(f"Template or unit file not found!")
             st.stop()
+        
         task_id = task_data.get("meta", {}).get("id", "unknown")
+        
         if not check_attempts(st.session_state.student_name, task_id, max_attempts):
-            st.error(f"Вы уже выполнили это задание (лимит: {max_attempts} попытка).")
-            if st.button("Выбрать другое задание"):
-                del st.session_state.selected_task
+            st.error(f"You have already completed this unit (limit: {max_attempts} attempt).")
+            if st.button("Choose another unit"):
+                del st.session_state.selected_unit
                 st.rerun()
             st.stop()
-        st.title(f"Задание: {task_data.get('meta', {}).get('title', 'Interview')}")
+        
+        st.title(f"Unit: {task_data.get('meta', {}).get('title', 'Comprehensive Tech English')}")
         st.markdown("---")
+        
         step_idx = st.session_state.get("current_step_idx", 0)
+        
         if step_idx < len(steps):
             current_step = steps[step_idx]
             step_type = current_step.get("type", "question")
+            
             if step_type == "gate":
                 if render_gate_step(current_step):
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
+            
             elif step_type == "question":
-                answer, flags = render_question_step(current_step, min_words=min_words)
+                audio_enabled = current_step.get("audio", False)
+                answer, flags = render_question_step(current_step, min_words=min_words, audio_enabled=audio_enabled)
                 if answer is not None:
                     st.session_state.answers[current_step["id"]] = answer
                     st.session_state.flags.extend(flags)
@@ -402,43 +529,58 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                         conn.commit()
                         conn.close()
                     except Exception as e:
-                        st.error(f"Ошибка БД: {e}")
+                        st.error(f"Database error: {e}")
                     st.rerun()
+            
             elif step_type == "multiple_choice":
                 result = render_multiple_choice_step(current_step)
                 if result is not None:
                     st.session_state.answers[current_step["id"]] = result
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
-            elif step_type == "matching":
-                result = render_matching_step(current_step)
+            
+            elif step_type == "vocab_mcq":
+                vocab_context = st.session_state.llm_results.get("vocab_context", {})
+                result = render_vocab_mcq_step(current_step, vocab_context)
                 if result is not None:
                     st.session_state.answers[current_step["id"]] = result
+                    st.session_state.llm_results["vocab_grade"] = result
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
+            
             elif step_type == "llm":
                 student_context = task_data.get("student_context", {})
-                result, tokens = render_llm_step(current_step, task_data, st.session_state.answers, st.session_state.get("student_profile", {}), student_context)
+                result, tokens = render_llm_step(
+                    current_step, 
+                    task_data, 
+                    st.session_state.answers, 
+                    st.session_state.get("student_profile", {}), 
+                    student_context,
+                    unit_config
+                )
                 st.session_state.llm_results[current_step["id"]] = result
                 st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
                 st.session_state.token_usage["total_tokens"] += tokens.get("total_tokens", 0)
                 st.session_state.current_step_idx = step_idx + 1
                 st.rerun()
+            
             elif step_type == "message":
                 clicked = render_message_step(current_step)
                 if clicked:
                     st.session_state.answers[current_step["id"]] = clicked
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
+            
             elif step_type == "action":
-                st.success("Задание завершено! Формируем отчет...")
+                st.success("Unit completed! Generating report...")
                 st.session_state.current_step_idx = step_idx + 1
                 st.rerun()
+        
         else:
-            st.subheader("Отлично! Все шаги пройдены.")
+            st.subheader("Excellent! All steps completed.")
             if "final_report" not in st.session_state:
-                st.markdown("Генерируем итоговый отчет... ⏳")
+                st.markdown("Generating final report... ⏳")
                 report_prompt_template = task_data.get("prompts", {}).get("report", "")
                 student_context = task_data.get("student_context", {})
                 context = {
@@ -466,18 +608,18 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.session_state.token_usage["completion_tokens"] += tokens["completion_tokens"]
                     st.session_state.token_usage["total_tokens"] += tokens["total_tokens"]
                     report_hash = compute_sha256(report_md)
-                    teacher_meta = f"\n---\n### Teacher Meta (скрыто от студента)\n- **Flags:** {', '.join(st.session_state.flags) if st.session_state.flags else 'none'}\n- **Token usage:** {st.session_state.token_usage['total_tokens']}\n- **Report hash:** {report_hash}\n- **Completed at:** {datetime.now().isoformat()}\n"
+                    teacher_meta = f"\n---\n### Teacher Meta (hidden from student)\n- **Flags:** {', '.join(st.session_state.flags) if st.session_state.flags else 'none'}\n- **Token usage:** {st.session_state.token_usage['total_tokens']}\n- **Report hash:** {report_hash}\n- **Completed at:** {datetime.now().isoformat()}\n"
                     st.session_state.final_report = report_md + teacher_meta
                     st.session_state.report_hash = report_hash
                 except Exception as e:
-                    st.session_state.final_report = f"Ошибка генерации отчета: {e}"
+                    st.session_state.final_report = f"Report generation error: {e}"
                     st.session_state.report_hash = None
                 st.rerun()
             else:
-                st.success("Отчет готов!")
+                st.success("Report is ready!")
                 report_body = st.session_state.final_report.split("---")[0]
                 st.markdown(report_body)
-                st.download_button(" Скачать отчет (Markdown)", report_body, file_name=f"report_{st.session_state.student_name.replace(' ', '_')}.md", mime="text/markdown")
+                st.download_button("📥 Download report (Markdown)", report_body, file_name=f"report_{st.session_state.student_name.replace(' ', '_')}.md", mime="text/markdown")
                 try:
                     conn = get_db_connection()
                     cursor = conn.cursor()
@@ -501,23 +643,23 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     if profile_notes:
                         save_student_profile(st.session_state.student_id, profile_notes)
                         st.session_state.student_profile.update(profile_notes)
-                    st.success("✅ Результаты сохранены! Профиль обновлён.")
+                    st.success("✅ Results saved! Profile updated.")
                 except Exception as e:
-                    st.error(f"Ошибка обновления БД: {e}")
+                    st.error(f"Database update error: {e}")
 
 elif st.session_state.get("mode") == "admin":
     if "admin_auth" not in st.session_state:
-        st.subheader("🔒 Вход для преподавателя")
-        pwd = st.text_input("Введите пароль администратора", type="password")
-        if st.button("Войти"):
+        st.subheader("🔒 Teacher Login")
+        pwd = st.text_input("Enter admin password", type="password")
+        if st.button("Login"):
             if pwd == ADMIN_PASSWORD:
                 st.session_state.admin_auth = True
                 st.rerun()
             else:
-                st.error("Неверный пароль")
+                st.error("Invalid password")
     else:
-        st.title("‍🏫 Панель преподавателя (Дашборд)")
-        if st.button("Выйти из админки"):
+        st.title("👩🏫 Teacher Dashboard")
+        if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
         try:
@@ -525,55 +667,50 @@ elif st.session_state.get("mode") == "admin":
             df = pd.read_sql_query("SELECT * FROM sessions ORDER BY full_name, created_at", conn)
             conn.close()
             if df.empty:
-                st.info("ℹ️ Пока нет данных от студентов.")
+                st.info("ℹ️ No student data yet.")
             else:
                 if 'grade_json' in df.columns:
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
                     df['accuracy'] = df['grade_json'].apply(lambda x: x.get('accuracy') if isinstance(x, dict) else None)
                     df['fluency'] = df['grade_json'].apply(lambda x: x.get('fluency') if isinstance(x, dict) else None)
-                    df['mc_score'] = df['grade_json'].apply(lambda x: x.get('mc_score') if isinstance(x, dict) else None)
-                    df['task_achievement'] = df['grade_json'].apply(lambda x: x.get('task_achievement') if isinstance(x, dict) else None)
-                    df['coherence'] = df['grade_json'].apply(lambda x: x.get('coherence') if isinstance(x, dict) else None)
-                    df['lexical_resource'] = df['grade_json'].apply(lambda x: x.get('lexical_resource') if isinstance(x, dict) else None)
-                    df['grammar'] = df['grade_json'].apply(lambda x: x.get('grammar') if isinstance(x, dict) else None)
+                    df['vocab_score'] = df['grade_json'].apply(lambda x: x.get('vocab_score') if isinstance(x, dict) else None)
                     df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
-                st.subheader("📊 Сводная таблица (Pivot)")
+                st.subheader(" Summary Table (Pivot)")
                 if 'total' in df.columns and df['total'].notna().any():
                     pivot_values = 'total'
-                elif 'mc_score' in df.columns and df['mc_score'].notna().any():
-                    pivot_values = 'mc_score'
+                elif 'vocab_score' in df.columns and df['vocab_score'].notna().any():
+                    pivot_values = 'vocab_score'
                 else:
-                    df['essay_total'] = (df['task_achievement'].fillna(0).astype(float) + df['coherence'].fillna(0).astype(float) + df['lexical_resource'].fillna(0).astype(float) + df['grammar'].fillna(0).astype(float))
-                    pivot_values = 'essay_total'
+                    pivot_values = 'accuracy'
                 pivot = df.pivot_table(index=['full_name'], columns='task_id', values=pivot_values, aggfunc='first')
                 st.dataframe(pivot.fillna("—"), use_container_width=True)
                 st.markdown("---")
-                st.subheader("🔍 Детальный просмотр сессий")
+                st.subheader("🔍 Detailed Session View")
                 for idx, row in df.iterrows():
                     with st.expander(f"{row.get('full_name')} - {row.get('task_id')} - {row.get('status')}"):
                         col1, col2 = st.columns(2)
                         with col1:
                             if pd.notna(row.get('accuracy')): st.metric("Accuracy", f"{row['accuracy']}/20")
                             if pd.notna(row.get('fluency')): st.metric("Fluency", f"{row['fluency']}/10")
-                            if pd.notna(row.get('mc_score')): st.metric("MC Score", f"{row['mc_score']}/10")
-                            if pd.notna(row.get('total')): st.metric("Total", f"{row['total']}")
+                            if pd.notna(row.get('vocab_score')): st.metric("Vocab Score", f"{row['vocab_score']}/10")
+                            if pd.notna(row.get('total')): st.metric("Total", f"{row['total']}/50")
                         with col2:
-                            st.write(f"**Статус:** {row.get('status')}")
-                            st.write(f"**Токены:** {row.get('token_usage')}")
-                            st.write(f"**Хеш:** `{row.get('report_hash')[:16]}...`" if pd.notna(row.get('report_hash')) else "Нет хеша")
-                        st.markdown("**Сырые ответы:**")
+                            st.write(f"**Status:** {row.get('status')}")
+                            st.write(f"**Tokens:** {row.get('token_usage')}")
+                            st.write(f"**Hash:** `{row.get('report_hash')[:16]}...`" if pd.notna(row.get('report_hash')) else "No hash")
+                        st.markdown("**Raw answers:**")
                         try:
                             answers = json.loads(row['answers']) if pd.notna(row['answers']) and isinstance(row['answers'], str) else row['answers']
                             if isinstance(answers, dict):
                                 for q_id, answer in answers.items():
                                     st.markdown(f"**{q_id}:** {answer}")
                         except:
-                            st.write("Не удалось загрузить")
+                            st.write("Failed to load")
                 st.markdown("---")
-                st.subheader(" Экспорт в Excel")
+                st.subheader("📥 Export to CSV")
                 export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
                 st.dataframe(export_df, use_container_width=True)
                 csv = export_df.to_csv(index=False).encode('utf-8')
-                st.download_button("Скачать CSV", csv, "student_results.csv", "text/csv")
+                st.download_button("Download CSV", csv, "student_results.csv", "text/csv")
         except Exception as e:
-            st.error(f"Ошибка: {e}")
+            st.error(f"Error: {e}")
