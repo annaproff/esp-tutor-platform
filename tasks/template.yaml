@@ -211,7 +211,7 @@ steps:
   - id: report
     type: llm
     model: yandexgpt-pro
-    temperature: 0.2
+    temperature: 0.3
     prompt: prompts.report
     inputs: ["student_context", "answers", "final_grade"]
     output: schemas.report
@@ -225,7 +225,7 @@ steps:
       send_to_teacher: "final_md + teacher_meta"
       send_to_student: "final_md"
       update_profile: final_grade.profile_notes
-    say: "Here is your comprehensive Digital Presentation. Great work!"
+    say: "Here is your personalized feedback. Great work!"
     next: done
 
 prompts:
@@ -283,73 +283,37 @@ prompts:
     - All feedback in ENGLISH
 
   report: |
-    You are an expert tutor. Create a final Markdown report combining grammar test results, reading comprehension, and opinion essay.
+    You are an expert English tutor. Give personalized feedback to the student based on their results.
     
-    STUDENT: {student_context}
-    STUDENT NAME: {student_name}
-    DATE: {date}
-    GRAMMAR SCORE: 10/10 (from multiple-choice test)
+    STUDENT CONTEXT: {student_context}
+    GRAMMAR SCORE: 10/10
     
     READING ANSWERS:
-    Q1 (year): {r1}
-    Q2 (words per day): {r2}
-    Q3 (formula): {r3}
-    Q4 (threshold t): {r4}
-    Q5 (dimensionality): {r5}
-    
-    Correct answers: Q1: 1986, Q2: More than 100 billion words, Q3: P(wi) = 1 - sqrt(t / f(wi)), Q4: Around 10^-5, Q5: 300-dimensional vectors
+    Q1: {r1}
+    Q2: {r2}
+    Q3: {r3}
+    Q4: {r4}
+    Q5: {r5}
+    Correct: Q1: 1986, Q2: >100 billion, Q3: P(wi) = 1 - sqrt(t / f(wi)), Q4: ~10^-5, Q5: 300
     
     ESSAY:
     {essay_write}
     
     GRADE:
-    Reading Score: {final_grade_reading_score}/15
-    Essay Task Achievement: {final_grade_essay_task_achievement}/15
+    Reading: {final_grade_reading_score}/15
+    Essay Task: {final_grade_essay_task_achievement}/15
     Essay Language: {final_grade_essay_language}/10
     Total: {final_grade_total}/50
     
-    Reading Feedback: {final_grade_reading_feedback}
-    Essay Strengths: {final_grade_essay_strengths}
-    Essay Improvements: {final_grade_essay_improvements}
+    STRENGTHS: {final_grade_essay_strengths}
+    IMPROVEMENTS: {final_grade_essay_improvements}
     
-    Create a comprehensive Markdown report with these sections:
-    # Digital Presentation: {{UNIT_TITLE}}
-    Student: {student_name} · Date: {date}
-    
-    ## 1. Grammar Keys (Passive Voice)
-    Brief table of correct answers for the 10 grammar questions (g1-g10) with explanations for 2-3 tricky cases.
-    
-    ## 2. Reading Comprehension Key
-    List all 5 questions with correct answers and brief explanations.
-    
-    ## 3. Student's Essay
-    Present the student's essay as submitted.
-    
-    ## 4. Performance Metrics
-    | Criterion | Score | Max |
-    |-----------|-------|-----|
-    | Grammar (Passive Voice) | 10 | 10 |
-    | Reading Comprehension | {final_grade_reading_score} | 15 |
-    | Essay Task Achievement | {final_grade_essay_task_achievement} | 15 |
-    | Essay Language | {final_grade_essay_language} | 10 |
-    | **TOTAL** | **{final_grade_total}** | **50** |
-    
-    ## 5. Detailed Feedback
-    **Reading Feedback**: {final_grade_reading_feedback}
-    **Essay Strengths**: {final_grade_essay_strengths}
-    **Areas for Improvement**: {final_grade_essay_improvements}
-    
-    ## 6. Personalized Vocabulary Upgrade
-    Based on the student's essay and reading answers, suggest 6-8 advanced B2-C1 academic words/collocations related to NLP, machine learning, and mathematical writing. For each provide:
-    - Word/phrase
-    - Definition (in English)
-    - Example sentence in academic context
-    
-    Return STRICT JSON only:
-    {{
-      "full_report": "# Digital Presentation: {{UNIT_TITLE}}\nStudent: {student_name} · Date: {date}\n\n## 1. Grammar Keys...\n..."
-    }}
-    Output ONLY the JSON with the complete Markdown report in the "full_report" field.
+    Please write a personalized feedback message in English. Include:
+    1. Brief analysis of their reading and essay results.
+    2. Specific recommendations for grammar (especially Passive Voice).
+    3. 6-8 advanced B2-C1 words/collocations related to NLP/math they should learn (with definitions and examples).
+    4. A motivating conclusion.
+    Write simply and clearly, like a tutor to a student. No complex markdown structures, just clear text.
 
 schemas:
   final_grade:
