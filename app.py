@@ -287,7 +287,7 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
     
     prompt = format_prompt_with_context(prompt_template, context)
     
-    with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
+    with st.spinner(" AI is analyzing your answer (this may take 10-20 seconds)..."):
         try:
             response, tokens = call_llm_with_retry(prompt, max_retries=2, temperature=step.get("temperature", 0.2))
             try:
@@ -333,8 +333,6 @@ def prepare_context_for_report(answers, llm_results, student_context, profile):
             context[key] = str(value)
     
     return context
-
-# ==================== MAIN APP ====================
 
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
     st.title("🎓 Welcome to AI Tutor Platform")
@@ -513,7 +511,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
         else:
             st.subheader("Excellent! All steps completed.")
             if "final_report" not in st.session_state:
-                st.markdown("Generating final report... ⏳")
+                st.markdown("Generating final report... ")
                 report_prompt_template = task_data.get("prompts", {}).get("report", "")
                 student_context = task_data.get("student_context", {})
                 
@@ -523,13 +521,22 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     student_context,
                     st.session_state.get("student_profile", {})
                 )
+                context["student_name"] = st.session_state.student_name
+                context["date"] = datetime.now().strftime("%Y-%m-%d")
                 
                 report_prompt = format_prompt_with_context(report_prompt_template, context)
                 try:
-                    report_md, tokens = call_llm_with_retry(report_prompt, max_retries=1, temperature=0.2)
+                    report_response, tokens = call_llm_with_retry(report_prompt, max_retries=1, temperature=0.2)
                     st.session_state.token_usage["prompt_tokens"] += tokens["prompt_tokens"]
                     st.session_state.token_usage["completion_tokens"] += tokens["completion_tokens"]
                     st.session_state.token_usage["total_tokens"] += tokens["total_tokens"]
+                    
+                    try:
+                        report_json = extract_json_with_retry(report_response, prompt_for_retry=report_prompt, max_retries=1)
+                        report_md = report_json.get("full_report", report_response)
+                    except:
+                        report_md = report_response
+                    
                     report_hash = compute_sha256(report_md)
                     teacher_meta = f"\n---\n### Teacher Meta (hidden from student)\n- **Flags:** {', '.join(st.session_state.flags) if st.session_state.flags else 'none'}\n- **Token usage:** {st.session_state.token_usage['total_tokens']}\n- **Report hash:** {report_hash}\n- **Completed at:** {datetime.now().isoformat()}\n"
                     st.session_state.final_report = report_md + teacher_meta
@@ -581,7 +588,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("👩‍ Teacher Dashboard")
+        st.title("👩‍🏫 Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
@@ -628,7 +635,7 @@ elif st.session_state.get("mode") == "admin":
                         except:
                             st.write("Failed to load")
                 st.markdown("---")
-                st.subheader("📥 Export to CSV")
+                st.subheader(" Export to CSV")
                 export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
                 st.dataframe(export_df, use_container_width=True)
                 csv = export_df.to_csv(index=False).encode('utf-8')
