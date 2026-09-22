@@ -121,17 +121,25 @@ def transcribe_audio(audio_bytes):
         return None
 
 def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
+    # Улучшенный парсер: вырезаем markdown блоки ```json ... ```
+    text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
+    text = text.strip()
+    
     for attempt in range(max_retries + 1):
         try:
-            json_match = re.search(r'{.*}', text, re.DOTALL)
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
             else:
                 raise ValueError("No JSON object found")
         except Exception as e:
             if attempt < max_retries and prompt_for_retry:
-                retry_prompt = prompt_for_retry + "\n\nIMPORTANT: return ONLY valid JSON, no explanations."
+                retry_prompt = prompt_for_retry + "\n\nIMPORTANT: return ONLY valid raw JSON, no markdown, no explanations."
                 text, _ = call_llm_with_retry(retry_prompt, max_retries=0, temperature=0.0)
+                text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+                text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
+                text = text.strip()
             else:
                 raise ValueError(f"JSON parse error: {e}")
     return None
@@ -290,7 +298,7 @@ def render_question_step(step, min_words=1, audio_enabled=False):
                 st.warning("Please enter some text before submitting.")
     else:
         if audio_enabled and not whisper_client:
-            st.warning("️ Audio recording requires OPENAI_API_KEY. Please type your answer.")
+            st.warning("⚠️ Audio recording requires OPENAI_API_KEY. Please type your answer.")
         text_input = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
         if st.button("Submit answer", type="primary", key=f"submit_{step['id']}"):
             if text_input and text_input.strip():
@@ -335,8 +343,10 @@ def render_vocab_mcq_step(step):
         return None
     
     if not vocab_data or 'vocab_mcq' not in vocab_data:
-        st.error("Vocabulary data not found. Please go back and complete the previous steps.")
-        st.write("Debug: Available keys in llm_results:", list(st.session_state.llm_results.keys()))
+        st.error("❌ Vocabulary data not found or incomplete.")
+        st.write("**Debug: Available keys in llm_results:**", list(st.session_state.llm_results.keys()))
+        st.write("**Debug: vocab_data content:**", vocab_data)
+        st.info("The AI did not generate the 'vocab_mcq' list correctly. Please try again.")
         return None
     
     vocab_list_text = vocab_data.get('vocab_list_text', '')
@@ -411,7 +421,6 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
     if unit_config:
         context["unit_topic"] = unit_config.get("topic", "")
     
-    # Pass all answers to context (including v_q1, v_q2)
     for key, value in answers.items():
         context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     for key, value in student_context.items():
@@ -446,7 +455,7 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
     st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(" I'm a student", use_container_width=True):
+        if st.button("👤 I'm a student", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
@@ -759,7 +768,7 @@ elif st.session_state.get("mode") == "admin":
                         except:
                             st.write("Failed to load")
                 st.markdown("---")
-                st.subheader(" Export to CSV")
+                st.subheader("📥 Export to CSV")
                 export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
                 st.dataframe(export_df, use_container_width=True)
                 csv = export_df.to_csv(index=False).encode('utf-8')
