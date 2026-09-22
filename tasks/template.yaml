@@ -3,8 +3,8 @@ meta:
   title: "{{UNIT_TITLE}}"
   max_score: 50
   llm_calls: 3
-  est_tokens: "20-30k"
-  est_cost_rub: "15-25"
+  est_tokens: "15-20k"
+  est_cost_rub: "12-18"
 student_context:
   age: 18
   major: mathematics
@@ -21,13 +21,15 @@ steps:
   - id: start
     type: gate
     say: |
-      Hi! This is a 50-point task.
+      Hi! This is a 50-point task based on the article "Distributed Representations of Words and Phrases" (Mikolov et al., 2013).
       Part 1: Grammar - Passive Voice (10 MCQs, 10 pts)
-      Part 2: Academic Writing — Negative Sampling Explained (40 pts)
+      Part 2: Reading Comprehension - Scanning (5 questions, 15 pts)
+      Part 3: Opinion Essay (150-200 words, 25 pts)
       Press Start when you're ready.
     buttons: ["Start"]
     next: g1
 
+  # === PART 1: GRAMMAR (10 pts) ===
   - id: g1
     type: multiple_choice
     topic: "Present Simple Passive"
@@ -146,13 +148,49 @@ steps:
       C: "were fixed"
       D: "have been fixed"
     correct: D
+    next: r1
+
+  # === PART 2: READING COMPREHENSION (15 pts) ===
+  - id: r1
+    type: question
+    topic: "Reading Q1"
+    say: "According to the article, what year does the earliest use of word representations date back to?"
+    next: r2
+
+  - id: r2
+    type: question
+    topic: "Reading Q2"
+    say: "Approximately how many words can an optimized single-machine implementation train in one day?"
+    next: r3
+
+  - id: r3
+    type: question
+    topic: "Reading Q3"
+    say: "What is the mathematical formula used to calculate the probability of discarding a word during subsampling?"
+    next: r4
+
+  - id: r4
+    type: question
+    topic: "Reading Q4"
+    say: "What is the typical value of the chosen threshold t in the subsampling formula?"
+    next: r5
+
+  - id: r5
+    type: question
+    topic: "Reading Q5"
+    say: "What is the dimensionality of the vectors used in the experiments summarized in Table 1?"
     next: essay_write
 
+  # === PART 3: OPINION ESSAY (25 pts) ===
   - id: essay_write
-    type: essay
-    topic: "Academic Writing: Negative Sampling Explained"
-    prompt: prompts.essay_system
-    save_as: essay_session
+    type: question
+    topic: "Opinion Essay"
+    say: |
+      Write a short essay (150-200 words) expressing your opinion on the following topic:
+      
+      "Do you think the approach described in the article (using mathematical vectors to represent words) will change how we teach languages in the future? Why or why not?"
+      
+      Try to use Passive Voice where appropriate and academic vocabulary.
     next: final_grade
 
   - id: final_grade
@@ -160,7 +198,7 @@ steps:
     model: yandexgpt-pro
     temperature: 0
     prompt: prompts.final_grade
-    inputs: ["student_context", "essay_session"]
+    inputs: ["student_context", "answers"]
     output: schemas.final_grade
     save_as: final_grade
     next: report
@@ -170,7 +208,7 @@ steps:
     model: yandexgpt-pro
     temperature: 0.2
     prompt: prompts.report
-    inputs: ["student_context", "essay_session", "final_grade"]
+    inputs: ["student_context", "answers", "final_grade"]
     output: schemas.report
     save_as: report
     next: deliver
@@ -186,167 +224,112 @@ steps:
     next: done
 
 prompts:
-  essay_system: |
-    You are an expert English tutor and ESP methodology specialist. Guide the student through an iterative academic essay writing process on "Mathematical Foundations of Word Representations".
-    
-    Student: Math major, 18 years old, English level B1-B2.
-    Topic: "Mathematical Foundations of Word Representations"
-    Source: Distributed Representations of Words and Phrases and their Compositionality (Mikolov et al., 2013) — https://arxiv.org/abs/1310.4546
-    Task: Write a short essay (150-200 words) explaining Negative Sampling to a first-year math student who knows nothing about NLP, using logistic regression and probability.
-    
-    Follow the step-by-step protocol strictly. Do NOT advance to the next stage until you receive the required input.
-    
-    TRIGGER: Ignore any input until the student writes exactly "Start!". After receiving this trigger, proceed to Iteration 1.
-    
-    ITERATION 1: PRE-WRITING
-    Step 1.1: Ask three questions:
-    1. In your own words, what is the main problem that Negative Sampling solves in the Skip-gram model?
-    2. How would you explain logistic regression to a friend in one sentence?
-    3. What is the key difference between Negative Sampling and Noise Contrastive Estimation (NCE)?
-    Wait for answers.
-    
-    Step 1.2: Propose a 4-part essay plan and ask the student to fill each part with 1-2 key ideas:
-    - Introduction (1-2 sentences): Hook + what Negative Sampling is and why it matters.
-    - The Problem (2-3 sentences): Why the standard softmax is computationally expensive.
-    - The Solution (4-5 sentences): How Negative Sampling works — logistic regression perspective, positive vs. negative examples.
-    - Conclusion (1-2 sentences): Why this matters for training word embeddings efficiently.
-    Wait for the plan.
-    
-    Feedback on the plan. Comment briefly: what's good, what to add/remove. Suggest 3-4 academic phrases:
-    - The primary challenge in training word embeddings lies in...
-    - To address this computational bottleneck, Mikolov et al. introduced...
-    - From a probabilistic standpoint, this can be framed as...
-    - In essence, the method transforms...
-    Ask: "Are you ready to write the first draft? If yes, write Ready!"
-    Wait for confirmation.
-    
-    ITERATION 2: FIRST DRAFT
-    Trigger: Student writes "Ready!"
-    Task: Ask the student to write the first draft (150-200 words) following the plan. Remind about target audience: first-year math student who knows nothing about NLP.
-    Wait for the text.
-    
-    ITERATION 3: FEEDBACK & REVISION
-    Analyze the draft on four criteria:
-    1. Task Achievement (max 5): How fully is Negative Sampling explained? Are logistic regression and probability mentioned? Is the level appropriate?
-    2. Coherence & Cohesion (max 5): Logical structure? Connectors used (however, therefore, in contrast, as a result)?
-    3. Lexical Resource (max 5): Thematic vocabulary (word embeddings, softmax, noise distribution, binary classification)? Any L1 calques?
-    4. Grammatical Range & Accuracy (max 5): Variety of structures (passive, conditionals, participle clauses). Errors.
-    Total Score: X / 20.
-    
-    Provide:
-    - 2-3 strengths
-    - 3-4 growth areas with examples from the student's text and suggested corrections
-    - 1 alternative introduction or conclusion for inspiration
-    
-    Ask the student to rewrite the essay incorporating all feedback.
-    Wait for the revised text.
-    
-    ITERATION 4: FINAL POLISH & SELF-ASSESSMENT
-    Evaluate the revised text on the same 4 criteria. Compare with the first draft: show progress.
-    Ask 3 reflective questions:
-    1. What was the most challenging part of writing this essay?
-    2. Which academic phrase from the feedback did you find most useful, and why?
-    3. If you had to add one more paragraph to this essay, what would it be about?
-    Wait for answers.
-    Ask: "Is everything clear? If yes, please write Yes! to receive your final file."
-    Wait for confirmation.
-    
-    ITERATION 5: SYNTHESIS
-    Trigger: Student writes "Yes!"
-    Generate a single professionally formatted Markdown file with structure:
-    # Digital Presentation: Academic Writing — Negative Sampling Explained
-    ## 1. Source Material
-    ## 2. Writing Task
-    ## 3. Essay Plan
-    ## 4. First Draft & Feedback
-    ## 5. Final Revised Essay
-    ## 6. Progress & Reflection
-    ## 7. Useful Academic Phrases
-    After the code block, add brief professional encouragement about explaining complex mathematical concepts in simple language.
-
   final_grade: |
-    You are an expert English tutor. Evaluate the student's final essay on Negative Sampling.
+    You are an expert English tutor. Evaluate the student's reading comprehension answers and opinion essay.
     
     Student: 18 y.o., math major, B1 targeting B2.
+    Article: "Distributed Representations of Words and Phrases and their Compositionality" (Mikolov et al., 2013)
     
-    The essay session transcript is below. Extract the FINAL REVISED ESSAY (the last version the student produced after feedback).
+    READING ANSWERS (5 questions):
+    Q1 (year of earliest word representations): {r1}
+    Q2 (words trained per day): {r2}
+    Q3 (subsampling formula): {r3}
+    Q4 (threshold t value): {r4}
+    Q5 (vector dimensionality): {r5}
     
-    Essay session transcript:
-    {essay_session}
+    Correct answers for reference:
+    Q1: 1986
+    Q2: More than 100 billion words
+    Q3: P(wi) = 1 - sqrt(t / f(wi))
+    Q4: Around 10^-5
+    Q5: 300-dimensional vectors
     
-    Evaluate the final essay on four criteria (each 0-10):
-    1. TASK ACHIEVEMENT (0-10): How fully Negative Sampling is explained, whether logistic regression and probability are mentioned, appropriateness for first-year math student.
-    2. COHERENCE (0-10): Logical structure, use of connectors (however, therefore, in contrast, as a result).
-    3. LEXICAL RESOURCE (0-10): Use of thematic vocabulary (word embeddings, softmax, noise distribution, binary classification), absence of L1 calques.
-    4. GRAMMAR (0-10): Variety of structures (passive, conditionals, participle clauses), accuracy.
+    ESSAY (opinion on whether vector representations will change language teaching):
+    {essay_write}
+    
+    Evaluate on three criteria:
+    1. READING ACCURACY (0-15): How many of the 5 reading questions are answered correctly? Give 3 points per correct answer.
+    2. ESSAY TASK ACHIEVEMENT (0-15): Is the opinion clearly stated? Are arguments supported? Is the length appropriate (150-200 words)?
+    3. ESSAY LANGUAGE (0-10): Grammar (especially Passive Voice), vocabulary range, coherence, academic style.
     
     Return STRICT JSON only:
     {{
-      "task_achievement": 0,
-      "coherence": 0,
-      "lexical_resource": 0,
-      "grammar": 0,
+      "reading_score": 0,
+      "essay_task_achievement": 0,
+      "essay_language": 0,
       "total": 0,
-      "strengths": ["...", "..."],
-      "improvements": ["...", "..."],
+      "reading_feedback": "Brief comment on reading answers",
+      "essay_strengths": ["...", "..."],
+      "essay_improvements": ["...", "..."],
       "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
+      "recommended_vocabulary": [
+        {{"word": "...", "definition": "...", "example": "..."}},
+        ... (6-8 items)
+      ],
       "profile_notes": {{
         "estimated_level": "B1 | B1+ | B2",
         "vocabulary_gaps": ["..."],
-        "grammar_gaps": ["..."],
-        "academic_vocabulary_gaps": ["..."]
+        "grammar_gaps": ["..."]
       }}
     }}
     Rules:
-    - errors: 2-3 items, original — verbatim quote from the final essay
-    - strengths/improvements: 2-3 items each
+    - errors: 2-3 items from the essay, original — verbatim quote
+    - recommended_vocabulary: 6-8 advanced B2-C1 words related to NLP, machine learning, or academic writing that the student should learn
     - All feedback in ENGLISH
 
   report: |
-    You are an expert tutor. Create a final Markdown report combining grammar test results and academic writing.
+    You are an expert tutor. Create a final Markdown report.
     
     STUDENT: {student_context}
     GRAMMAR SCORE: 10/10 (from multiple-choice test)
     
-    Essay session transcript:
-    {essay_session}
+    READING ANSWERS:
+    Q1: {r1}
+    Q2: {r2}
+    Q3: {r3}
+    Q4: {r4}
+    Q5: {r5}
+    
+    ESSAY:
+    {essay_write}
     
     GRADE:
-    Task Achievement: {final_grade_task_achievement}/10
-    Coherence: {final_grade_coherence}/10
-    Lexical Resource: {final_grade_lexical_resource}/10
-    Grammar: {final_grade_grammar}/10
-    Essay Total: {final_grade_total}/40
+    Reading Score: {final_grade_reading_score}/15
+    Essay Task Achievement: {final_grade_essay_task_achievement}/15
+    Essay Language: {final_grade_essay_language}/10
+    Total: {final_grade_total}/50
     
-    Strengths: {final_grade_strengths}
-    Improvements: {final_grade_improvements}
+    Reading Feedback: {final_grade_reading_feedback}
+    Essay Strengths: {final_grade_essay_strengths}
+    Essay Improvements: {final_grade_essay_improvements}
+    Recommended Vocabulary: {final_grade_recommended_vocabulary}
     
     The report must contain:
     ## 1. Grammar Keys (Passive Voice)
     Brief table of correct answers for the 10 grammar questions with explanations for 2-3 tricky cases.
     
-    ## 2. Essay Process Summary
-    Brief summary of the essay writing journey: initial plan, first draft score, final score, key improvements.
+    ## 2. Reading Comprehension Key
+    List all 5 questions with correct answers and brief explanations.
     
-    ## 3. Final Revised Essay
-    Present the student's final essay version with a note on what makes it strong.
+    ## 3. Student's Essay
+    Present the student's essay as submitted.
     
     ## 4. Performance Metrics
     | Criterion | Score | Max |
     |-----------|-------|-----|
     | Grammar (Passive Voice) | 10 | 10 |
-    | Task Achievement | {final_grade_task_achievement} | 10 |
-    | Coherence | {final_grade_coherence} | 10 |
-    | Lexical Resource | {final_grade_lexical_resource} | 10 |
-    | Grammar (Essay) | {final_grade_grammar} | 10 |
-    | **TOTAL** | **{final_grade_total_plus_10}** | **50** |
+    | Reading Comprehension | {final_grade_reading_score} | 15 |
+    | Essay Task Achievement | {final_grade_essay_task_achievement} | 15 |
+    | Essay Language | {final_grade_essay_language} | 10 |
+    | **TOTAL** | **{final_grade_total}** | **50** |
     
     ## 5. Detailed Feedback
-    **Strengths**: {final_grade_strengths}
-    **Areas for Improvement**: {final_grade_improvements}
+    **Reading Feedback**: {final_grade_reading_feedback}
+    **Essay Strengths**: {final_grade_essay_strengths}
+    **Areas for Improvement**: {final_grade_essay_improvements}
     
     ## 6. Personalized Vocabulary Upgrade
-    Based on the student's essay, suggest 6-8 advanced B2-C1 academic words/collocations related to NLP, machine learning, and mathematical writing that the student should learn next. For each provide:
+    Based on the student's essay and reading answers, suggest 6-8 advanced B2-C1 academic words/collocations related to NLP, machine learning, and mathematical writing that the student should learn next. For each provide:
     - Word/phrase
     - Definition (in English)
     - Example sentence in academic context
@@ -355,23 +338,23 @@ prompts:
 
 schemas:
   final_grade:
-    task_achievement: "int 0..10"
-    coherence: "int 0..10"
-    lexical_resource: "int 0..10"
-    grammar: "int 0..10"
-    total: "int 0..40"
-    strengths: "list"
-    improvements: "list"
+    reading_score: "int 0..15"
+    essay_task_achievement: "int 0..15"
+    essay_language: "int 0..10"
+    total: "int 0..50"
+    reading_feedback: "str"
+    essay_strengths: "list"
+    essay_improvements: "list"
     errors: "list"
+    recommended_vocabulary: "list"
     profile_notes:
       estimated_level: "str"
       vocabulary_gaps: "list"
       grammar_gaps: "list"
-      academic_vocabulary_gaps: "list"
   report:
     grammar_keys: "str"
-    essay_summary: "str"
-    final_essay: "str"
+    reading_key: "str"
+    student_essay: "str"
     metrics: "str"
     feedback: "str"
     vocab_upgrade: "list"
@@ -384,11 +367,11 @@ templates:
     ## 1. Grammar Keys (Passive Voice)
     {report_grammar_keys}
     
-    ## 2. Essay Process Summary
-    {report_essay_summary}
+    ## 2. Reading Comprehension Key
+    {report_reading_key}
     
-    ## 3. Final Revised Essay
-    {report_final_essay}
+    ## 3. Student's Essay
+    {report_student_essay}
     
     ## 4. Performance Metrics
     {report_metrics}
@@ -404,6 +387,6 @@ templates:
     
   teacher_meta: |
     ### For teacher only
-    Full essay session transcript: {essay_session_raw}
+    Raw answers: {answers_raw}
     Tokens: {token_usage}
     Hash: {report_hash}
