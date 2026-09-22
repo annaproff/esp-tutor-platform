@@ -311,7 +311,7 @@ prompts:
     Top apps: {v_q2}
 
     Generate a list of 6-8 advanced B2-level English words/collocations related to technology that are relevant to the student's answers.
-    Then generate STRICT JSON only, no markdown:
+    Then generate STRICT JSON only. DO NOT use markdown code blocks. Output ONLY the raw JSON string starting with { and ending with }.
     {{
       "vocab_list_text": "A short list of the 6-8 words with brief explanations in English.",
       "vocab_mcq": [
