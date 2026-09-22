@@ -1,0 +1,497 @@
+=====================================================================
+Task Template: Comprehensive Tech English (50 points)
+Version: 2.0
+meta:
+  id: "unit_{{UNIT_NUMBER}}"
+  title: "{{UNIT_TITLE}}"
+  max_score: 50
+  llm_calls: 4
+  est_tokens: "18-22k"
+  est_cost_rub: "15-22"
+student_context:
+  age: 18
+  major: mathematics
+  level: "B1 (target: B2)"
+  topic: "{{UNIT_TOPIC}}"
+settings:
+  answers:
+    language: en
+    min_words: 25
+    russian_detect: "cyrillic > 30%"
+  timing:
+    remind_after_hours: 24
+    expire_after_days: 7
+  attempts:
+    max: 1
+steps:
+  - id: start
+    type: gate
+    say: |
+      Hi! This is a comprehensive 50-point task.
+      Part 1: Grammar - {{UNIT_GRAMMAR}} (10 MCQs, 10 pts)
+      Part 2: Personalized Vocabulary (10 MCQs, 10 pts)
+      Part 3: Interview (6 questions, 30 pts)
+      Press Start when you're ready.
+    buttons: ["Start"]
+    next: g1
+
+  - id: g1
+    type: multiple_choice
+    topic: "Present Simple Passive"
+    question: "The new security patch ______ by the development team every month."
+    options:
+      A: "is deployed"
+      B: "was deployed"
+      C: "has been deployed"
+      D: "deploys"
+    correct: A
+    save_as: answers.g1
+    next: g2
+
+  - id: g2
+    type: multiple_choice
+    topic: "Past Simple Passive"
+    question: "The database ______ last night during the maintenance window."
+    options:
+      A: "is backed up"
+      B: "was backed up"
+      C: "has been backed up"
+      D: "backed up"
+    correct: B
+    save_as: answers.g2
+    next: g3
+
+  - id: g3
+    type: multiple_choice
+    topic: "Present Perfect Passive"
+    question: "Several vulnerabilities ______ in the system so far."
+    options:
+      A: "are discovered"
+      B: "were discovered"
+      C: "have been discovered"
+      D: "discovered"
+    correct: C
+    save_as: answers.g3
+    next: g4
+
+  - id: g4
+    type: multiple_choice
+    topic: "Past Perfect Passive"
+    question: "The server ______ before the attack occurred."
+    options:
+      A: "is compromised"
+      B: "was compromised"
+      C: "had been compromised"
+      D: "has been compromised"
+    correct: C
+    save_as: answers.g4
+    next: g5
+
+  - id: g5
+    type: multiple_choice
+    topic: "Modal Passive"
+    question: "All user data ______ encrypted according to the new policy."
+    options:
+      A: "must be"
+      B: "must"
+      C: "must been"
+      D: "must to be"
+    correct: A
+    save_as: answers.g5
+    next: g6
+
+  - id: g6
+    type: multiple_choice
+    topic: "Reporting Verb Passive"
+    question: "The algorithm ______ to improve search accuracy by 40%."
+    options:
+      A: "believes"
+      B: "is believed"
+      C: "is believed to"
+      D: "believed to"
+    correct: C
+    save_as: answers.g6
+    next: g7
+
+  - id: g7
+    type: multiple_choice
+    topic: "Passive with Infinitive"
+    question: "The software update needs ______ before Friday."
+    options:
+      A: "to install"
+      B: "to be installed"
+      C: "installing"
+      D: "be installed"
+    correct: B
+    save_as: answers.g7
+    next: g8
+
+  - id: g8
+    type: multiple_choice
+    topic: "Present Simple Passive"
+    question: "User passwords ______ in a secure database."
+    options:
+      A: "store"
+      B: "are stored"
+      C: "stored"
+      D: "have stored"
+    correct: B
+    save_as: answers.g8
+    next: g9
+
+  - id: g9
+    type: multiple_choice
+    topic: "Past Simple Passive"
+    question: "The firewall ______ by the IT team yesterday."
+    options:
+      A: "configures"
+      B: "is configured"
+      C: "was configured"
+      D: "configured"
+    correct: C
+    save_as: answers.g9
+    next: g10
+
+  - id: g10
+    type: multiple_choice
+    topic: "Present Perfect Passive"
+    question: "Three major bugs ______ in the latest release."
+    options:
+      A: "fix"
+      B: "are fixed"
+      C: "were fixed"
+      D: "have been fixed"
+    correct: D
+    save_as: answers.g10
+    next: v_q1
+
+  - id: v_q1
+    type: question
+    topic: "Devices & Operations"
+    say: "Which devices do you use in your everyday life, and what particular operations do you perform with them?"
+    save_as: answers.v_q1
+    next: v_q2
+
+  - id: v_q2
+    type: question
+    topic: "Top Apps"
+    say: "Name your top two or three apps and illustrate what you do in them."
+    save_as: answers.v_q2
+    next: v_generate
+
+  - id: v_generate
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0.2
+    prompt: prompts.v_generate
+    inputs: [student_context, answers.v_q1, answers.v_q2, unit_config]
+    output: schemas.v_generate
+    checks:
+      "vocab_list: 6-8 items"
+      "vocab_mcq: exactly 10 items"
+      "interview_questions: exactly 6 items"
+    on_check_fail: "retry 1 time"
+    save_as: vocab_context
+    next: v_mcq_task
+
+  - id: v_mcq_task
+    type: question
+    topic: "Personalized Vocab Practice"
+    say: |
+      Based on your answers, here is your personalized vocabulary list:
+      {vocab_context.vocab_list_text}
+
+      Now, please answer this 10-question multiple-choice test based on Merriam-Webster style collocations of these words.
+      Reply with your answers in a single line (e.g., "1A 2B 3C 4D 5A 6B 7C 8D 9A 10B"):
+
+      {vocab_context.vocab_mcq_text}
+    save_as: answers.v_mcq_raw
+    next: v_mcq_grade
+
+  - id: v_mcq_grade
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0
+    prompt: prompts.v_mcq_grade
+    inputs: [vocab_context, answers.v_mcq_raw]
+    output: schemas.v_mcq_grade
+    checks:
+      "vocab_score: int 0..10"
+    on_check_fail: "retry 1 time"
+    compute: "vocab_score = vocab_score"
+    save_as: vocab_grade
+    next: i1
+
+  - id: i1
+    type: question
+    topic: "Interview Q1"
+    say: "{vocab_context.iq1}"
+    save_as: answers.i1
+    next: i2
+
+  - id: i2
+    type: question
+    topic: "Interview Q2"
+    say: "{vocab_context.iq2}"
+    save_as: answers.i2
+    next: i3
+
+  - id: i3
+    type: question
+    topic: "Interview Q3"
+    say: "{vocab_context.iq3}"
+    save_as: answers.i3
+    next: i4
+
+  - id: i4
+    type: question
+    topic: "Interview Q4"
+    say: "{vocab_context.iq4}"
+    save_as: answers.i4
+    next: i5
+
+  - id: i5
+    type: question
+    topic: "Interview Q5"
+    say: "{vocab_context.iq5}"
+    save_as: answers.i5
+    next: i6
+
+  - id: i6
+    type: question
+    topic: "Interview Q6"
+    say: "{vocab_context.iq6}"
+    save_as: answers.i6
+    after_save_say: "Thank you! Give me a moment to review your answers and calculate your final score."
+    next: final_grade
+
+  - id: final_grade
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0
+    prompt: prompts.final_grade
+    inputs: [student_context, vocab_context, answers, vocab_grade]
+    output: schemas.final_grade
+    checks:
+      "accuracy: int 0..20"
+      "fluency: int 0..10"
+    on_check_fail: "retry 1 time"
+    compute: "interview_score = accuracy + fluency"
+    compute: "total = 10 + vocab_grade.vocab_score + interview_score"
+    save_as: final_grade
+    next: report
+
+  - id: report
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0.2
+    prompt: prompts.report
+    inputs: [student_context, answers, vocab_context, vocab_grade, final_grade]
+    output: schemas.report
+    checks:
+      "corrected_interview: exactly 6 items"
+      "vocab_upgrade: exactly 5 items"
+    on_check_fail: "retry 1 time"
+    save_as: report
+    next: deliver
+
+  - id: deliver
+    type: action
+    do:
+      build_file: templates.final_md
+      send_to_teacher: "final_md + teacher_meta"
+      send_to_student: "final_md"
+      write_row: "results_table: student | task | grammar | vocab | accuracy | fluency | total | date"
+      update_profile: final_grade.profile_notes
+    say: "Here is your comprehensive Digital Presentation. Great work!"
+    next: done
+
+rubric:
+  grammar_score:
+    "10": "Perfect understanding of Passive Voice forms"
+    "7-9": "Good understanding; minor errors"
+    "4-6": "Basic understanding; several errors"
+    "0-3": "Poor understanding; most answers incorrect"
+  accuracy:
+    "17-20": "Minor errors; B2 vocabulary appropriate; good use of passive and personalized vocab"
+    "13-16": "Several tense/article errors; mostly B1+ lexicon"
+    "9-12": "Regular basic tense errors; noticeable L1 calques"
+    "5-8": "Errors impede understanding; limited vocabulary"
+    "0-4": "Understanding difficult in most answers"
+  fluency:
+    "9-10": "Coherent extended answers; diverse discourse markers"
+    "7-8": "Coherent but markers basic (and, but, because)"
+    "5-6": "Short/choppy answers; few connectors"
+    "3-4": "Isolated phrases without connection"
+    "0-2": "One-word answers"
+
+prompts:
+  v_generate: |
+    Ты экспертный тьютор по английскому языку. На основе ответов студента сгенерируй персонализированный контент.
+    Ответы студента:
+    Устройства и операции: {v_q1}
+    Топ приложений: {v_q2}
+    Тема юнита: {unit_config.topic}
+    Целевая лексика юнита: {unit_config.vocab_seed}
+
+    Выбери 6-8 слов из списка {unit_config.vocab_seed}, наиболее релевантных ответам студента.
+    Сгенерируй СТРОГО JSON без markdown:
+    {{
+      "vocab_list_text": "Краткий список из 6-8 продвинутых слов/коллокаций с кратким пояснением на английском.",
+      "vocab_mcq_text": "Текст 10 вопросов множественного выбора (1 балл каждый) в формате:\n1. The system automatically ______ redundant files.\nA) compresses B) compiles C) complies D) compensates\n(Используй выбранную лексику, стилизуя под примеры из конкорданса Merriam-Webster)",
+      "vocab_mcq": [
+        {{"id": 1, "question": "...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "correct": "A"}},
+        ... (ровно 10 объектов)
+      ],
+      "iq1": "Вопрос для интервью 1, использующий Passive Voice и 1-2 слова из выбранной лексики.",
+      "iq2": "Вопрос для интервью 2, использующий Passive Voice и 1-2 слова из выбранной лексики.",
+      "iq3": "Вопрос для интервью 3, использующий Passive Voice и 1-2 слова из выбранной лексики.",
+      "iq4": "Вопрос для интервью 4, использующий Passive Voice и 1-2 слова из выбранной лексики.",
+      "iq5": "Вопрос для интервью 5, использующий Passive Voice и 1-2 слова из выбранной лексики.",
+      "iq6": "Вопрос для интервью 6, использующий Passive Voice и 1-2 слова из выбранной лексики."
+    }}
+    Правила:
+    - Вопросы интервью должны быть естественными, но целенаправленно провоцировать использование пассива и новой лексики в ответе.
+    - Весь сгенерированный контент на АНГЛИЙСКОМ.
+
+  v_mcq_grade: |
+    Ты экспертный тьютор. Проверь ответы студента на тест по персонализированной лексике.
+    Правильные ответы (из vocab_context): {vocab_mcq}
+    Ответы студента: {v_mcq_raw}
+
+    Распарси ответы студента (например, "1A 2B..."). Сравни с правильными.
+    Верни СТРОГО JSON без markdown:
+    {{
+      "vocab_score": <int 0-10>,
+      "details": [{{"id": 1, "student": "A", "correct": "A", "is_correct": true}}]
+    }}
+
+  final_grade: |
+    Ты экспертный тьютор по английскому языку. Оцени 6 ответов студента на интервью.
+    Персонализированная лексика, которую ожидалось использовать: {vocab_context.vocab_list_text}
+    Ответы студента:
+    1: {i1}
+    2: {i2}
+    3: {i3}
+    4: {i4}
+    5: {i5}
+    6: {i6}
+
+    Оценивай по двум критериям:
+    1. ACCURACY (0-20): грамматика (особенно использование Passive Voice, на который провоцировали вопросы), лексическая точность, попытка использовать персонализированную лексику.
+    2. FLUENCY (0-10): связность, дискурсивные маркеры, естественность, длина ответов.
+
+    Верни СТРОГО JSON без markdown:
+    {{
+      "accuracy": <int 0-20>,
+      "fluency": <int 0-10>,
+      "strengths": ["...", "..."],
+      "improvements": ["...", "..."],
+      "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
+      "profile_notes": {{
+        "recurring_errors": ["..."],
+        "resolved_since_last": ["..."],
+        "estimated_level": "B1 | B1+ | B2",
+        "vocabulary_gaps": ["..."]
+      }}
+    }}
+    Правила:
+    - errors: ровно 2-3 пункта, original — дословная цитата из ответов
+    - strengths/improvements: по 2-3 пункта
+    - Весь фидбек на АНГЛИЙСКОМ
+
+  report: |
+    Ты экспертный тьютор. Сформируй финальный Markdown-отчет по комплексному заданию.
+    СТУДЕНТ: {student_context}
+    ПЕРСОНАЛИЗИРОВАННАЯ ЛЕКСИКА: {vocab_context.vocab_list_text}
+    ОЦЕНКА: {final_grade}
+
+    Отчет должен содержать:
+    ## 1. Grammar Keys (Passive Voice)
+    Краткая таблица правильных ответов на 10 вопросов по грамматике и пояснение 2-3 сложных случаев.
+    ## 2. Personalized Vocabulary Practice Key
+    Список из 10 вопросов по лексике с правильными ответами и краткими пояснениями (стиль Merriam-Webster).
+    ## 3. Interview Transcript (Corrected)
+    Перепиши каждый из 6 ответов интервью как естественный английский уровня B2, сохраняя смысл и демонстрируя идеальное использование Passive Voice и персонализированной лексики.
+    ## 4. Performance Metrics
+    Таблица с баллами (Grammar /10, Vocab /10, Accuracy /20, Fluency /10, Total /50).
+    ## 5. Detailed Feedback
+    **Strengths**: {strengths}
+    **Areas for Improvement**: {improvements}
+    ## 6. Personalized Vocabulary Upgrade
+    5 продвинутых слов/коллокаций по теме IT, которые студенту стоит изучить дальше (с дефинициями и примерами).
+    Output ONLY the Markdown.
+
+schemas:
+  v_generate:
+    vocab_list_text: "str"
+    vocab_mcq_text: "str"
+    vocab_mcq: "[{{id: int, question: str, options: {{A: str, B: str, C: str, D: str}}, correct: str}}] — exactly 10 items"
+    iq1: "str"
+    iq2: "str"
+    iq3: "str"
+    iq4: "str"
+    iq5: "str"
+    iq6: "str"
+  v_mcq_grade:
+    vocab_score: "int 0..10"
+    details: "[{{id: int, student: str, correct: str, is_correct: bool}}] — exactly 10 items"
+  final_grade:
+    accuracy: "int 0..20"
+    fluency: "int 0..10"
+    strengths: "[str] — 2-3 items"
+    improvements: "[str] — 2-3 items"
+    errors: "[{{original: str, corrected: str, explanation: str}}] — 2-3 items"
+    profile_notes:
+      recurring_errors: "[str]"
+      resolved_since_last: "[str]"
+      estimated_level: "B1 | B1+ | B2"
+      vocabulary_gaps: "[str]"
+  report:
+    grammar_keys: "str"
+    vocab_keys: "str"
+    corrected_interview: "[str] — exactly 6 items"
+    metrics: "str"
+    feedback: "str"
+    vocab_upgrade: "[{{term: str, definition: str, example: str}}] — exactly 5 items"
+
+templates:
+  final_md: |
+    # Digital Presentation: {{UNIT_TITLE}}
+    Student: {student_name} · Date: {date}
+
+    ## 1. Grammar Keys (Passive Voice)
+    {report.grammar_keys}
+
+    ## 2. Personalized Vocabulary Practice Key
+    {report.vocab_keys}
+
+    ## 3. Interview Transcript (Corrected)
+    {for i, c in report.corrected_interview}**Q{i}.** {c}{end}
+
+    ## 4. Performance Metrics
+    | Criterion | Score | Max |
+    |-----------|-------|-----|
+    | Grammar (Passive) | 10 | 10 |
+    | Vocabulary (Personalized) | {vocab_grade.vocab_score} | 10 |
+    | Interview Accuracy | {final_grade.accuracy} | 20 |
+    | Interview Fluency | {final_grade.fluency} | 10 |
+    | **TOTAL** | **{final_grade.total}** | **50** |
+
+    ## 5. Detailed Feedback
+    **Strengths**
+    {for s in final_grade.strengths}- {s}{end}
+    **Areas for Improvement**
+    {for i in final_grade.improvements}- {i}{end}
+
+    ## 6. Personalized Vocabulary Upgrade
+    {for v in report.vocab_upgrade}- **{v.term}** — {v.definition}
+      *Example: {v.example}*{end}
+
+  teacher_meta: |
+    ### Служебное (только для преподавателя)
+    Исходные ответы (Тесты + Интервью): {answers_raw}
+    Персонализированная лексика: {vocab_context.vocab_list_text}
+    Флаги: {flags}
+    Токены: {token_usage}
+    Хеш: {report_hash}
