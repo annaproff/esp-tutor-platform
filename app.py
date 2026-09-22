@@ -13,7 +13,7 @@ import time
 import io
 import requests
 
-st.set_page_config(page_title="AI English Tutor", page_icon="", layout="wide")
+st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide")
 
 YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.environ.get("YANDEX_FOLDER_ID")
@@ -23,7 +23,7 @@ if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
     st.error("Missing environment variables: YANDEX_API_KEY, YANDEX_FOLDER_ID")
     st.stop()
 
-client = OpenAI(
+yandex_client = OpenAI(
     api_key=YANDEX_API_KEY,
     base_url="https://llm.api.cloud.yandex.net/foundationModels/v1"
 )
@@ -86,7 +86,7 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            response = client.chat.completions.create(
+            response = yandex_client.chat.completions.create(
                 model=f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
                 messages=[{"role": "user", "text": prompt}],
                 temperature=temperature
@@ -124,14 +124,14 @@ def transcribe_audio_yandex(audio_bytes):
 def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
     for attempt in range(max_retries + 1):
         try:
-            json_match = re.search(r'{.*}', text, re.DOTALL)
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
             else:
                 raise ValueError("No JSON object found")
         except Exception as e:
             if attempt < max_retries and prompt_for_retry:
-                retry_prompt = prompt_for_retry + "\n\nВАЖНО: верни ТОЛЬКО валидный JSON без пояснений."
+                retry_prompt = prompt_for_retry + "\n\nIMPORTANT: return ONLY valid JSON, no explanations."
                 text, _ = call_llm_with_retry(retry_prompt, max_retries=0, temperature=0.0)
             else:
                 raise ValueError(f"JSON parse error: {e}")
@@ -148,7 +148,7 @@ def validate_answer(answer, min_words=15, russian_threshold=0.3):
     word_count = len(answer.split())
     if word_count < min_words:
         flags.append("too_short_accepted")
-        warnings.append(f"Пожалуйста, напишите чуть подробнее (минимум {min_words} слов).")
+        warnings.append(f"Please write a bit more (minimum {min_words} words).")
     cyrillic_chars = len(re.findall(r'[а-яА-Я]', answer))
     if cyrillic_chars > len(answer) * russian_threshold:
         flags.append("russian_accepted")
@@ -195,9 +195,9 @@ def save_student_profile(student_id, profile_notes):
 
 def format_profile_for_prompt(profile):
     if not profile:
-        return "У студента нет предыдущих заданий — это первая попытка."
+        return "This is the student's first task — no previous profile notes."
     lines = ["Previous profile notes from past tasks:"]
-    for key in ["recurring_errors", "resolved_since_last", "estimated_level", "vocabulary_gaps", "grammar_gaps"]:
+    for key in ["recurring_errors", "resolved_since_last", "estimated_level", "vocabulary_gaps", "grammar_gaps", "writing_gaps", "academic_vocabulary_gaps"]:
         if profile.get(key):
             val = profile[key]
             if isinstance(val, list):
@@ -218,7 +218,6 @@ def check_attempts(full_name, task_id, max_attempts=1):
     return count < max_attempts
 
 def load_template_and_unit(template_file, unit_config_file):
-    """Загружает шаблон и конфиг юнита, подставляет переменные"""
     with open(template_file, "r", encoding="utf-8") as f:
         template = yaml.safe_load(f)
     with open(unit_config_file, "r", encoding="utf-8") as f:
@@ -228,9 +227,26 @@ def load_template_and_unit(template_file, unit_config_file):
     template['meta']['title'] = template['meta']['title'].replace('{{UNIT_TITLE}}', unit_config['title'])
     template['student_context']['topic'] = template['student_context']['topic'].replace('{{UNIT_TOPIC}}', unit_config['topic'])
     
-    if 'templates' in template and 'final_md' in template['templates']:
-        template['templates']['final_md'] = template['templates']['final_md'].replace('{{UNIT_TITLE}}', unit_config['title'])
+    replacements = {
+        '{{UNIT_TITLE}}': unit_config['title'],
+        '{{UNIT_TOPIC}}': unit_config['topic'],
+        '{{UNIT_GRAMMAR}}': unit_config.get('grammar', ''),
+        '{{SECTION_1_TITLE}}': unit_config.get('section_1_title', 'Grammar'),
+        '{{SECTION_2_TITLE}}': unit_config.get('section_2_title', 'Essay Writing'),
+    }
     
+    def replace_in_obj(obj):
+        if isinstance(obj, str):
+            for k, v in replacements.items():
+                obj = obj.replace(k, v)
+            return obj
+        elif isinstance(obj, dict):
+            return {k: replace_in_obj(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [replace_in_obj(item) for item in obj]
+        return obj
+    
+    template = replace_in_obj(template)
     return template, unit_config
 
 def format_prompt_with_context(prompt_template, context_dict):
@@ -268,39 +284,42 @@ def render_question_step(step, min_words=15, audio_enabled=False):
                     if warnings:
                         for w in warnings:
                             st.warning(w)
-                        if st.button("Submit anyway", key="force_send_audio"):
+                        if st.button("Submit anyway", key=f"force_send_audio_{step['id']}"):
                             user_answer = transcript
                     else:
                         user_answer = transcript
             else:
-                st.error("Could not transcribe audio. Please try again or use text input below.")
+                st.warning("⚠️ Could not transcribe audio. Please use text input below.")
         
         st.markdown("---")
         st.caption("Or type your answer:")
-        text_answer = st.text_area("Text answer (optional):", height=100, key=f"text_{step['id']}")
+        text_answer = st.text_area("Text answer:", height=100, key=f"text_{step['id']}")
         if st.button("Submit text answer", type="primary", key=f"submit_text_{step['id']}"):
             if text_answer.strip():
                 flags, warnings = validate_answer(text_answer, min_words=min_words)
                 if warnings:
                     for w in warnings:
                         st.warning(w)
-                    if st.button("Submit anyway", key="force_send_text"):
+                    if st.button("Submit anyway", key=f"force_send_text_{step['id']}"):
                         user_answer = text_answer
                 else:
                     user_answer = text_answer
             else:
                 st.warning("Please enter some text before submitting.")
     else:
-        user_answer = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
+        text_input = st.text_area("Your answer (in English):", height=200, key=f"answer_{step['id']}")
         if st.button("Submit answer", type="primary", key=f"submit_{step['id']}"):
-            flags, warnings = validate_answer(user_answer, min_words=min_words)
-            if warnings:
-                for w in warnings:
-                    st.warning(w)
-                if st.button("Submit anyway", key="force_send"):
-                    return user_answer, flags
+            if text_input and text_input.strip():
+                flags, warnings = validate_answer(text_input, min_words=min_words)
+                if warnings:
+                    for w in warnings:
+                        st.warning(w)
+                    if st.button("Submit anyway", key=f"force_send_{step['id']}"):
+                        user_answer = text_input
+                else:
+                    user_answer = text_input
             else:
-                return user_answer, []
+                st.warning("Please enter some text before submitting.")
     
     if user_answer is not None:
         return user_answer, flags
@@ -310,13 +329,14 @@ def render_multiple_choice_step(step):
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("question"))
     options = step.get("options", {})
-    option_labels = list(options.keys())
-    selected = st.radio("Choose your answer:", option_labels, key=f"mc_{step['id']}")
-    if st.button("Submit answer", type="primary"):
+    display_labels = [f"{k}: {v}" for k, v in options.items()]
+    selected_label = st.radio("Choose your answer:", display_labels, key=f"mc_{step['id']}")
+    if st.button("Submit answer", type="primary", key=f"submit_mc_{step['id']}"):
+        selected_key = selected_label.split(":")[0].strip()
         return {
-            "selected": options[selected],
+            "selected": options[selected_key],
             "correct": step.get("correct"),
-            "is_correct": options[selected] == step.get("correct")
+            "is_correct": selected_key == step.get("correct")
         }
     return None
 
@@ -328,7 +348,7 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
         "answers": json.dumps(answers, ensure_ascii=False),
     }
     if unit_config:
-        context["unit_config"] = json.dumps(unit_config, ensure_ascii=False)
+        context["unit_topic"] = unit_config.get("topic", "")
     
     for key, value in answers.items():
         context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
@@ -344,8 +364,8 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
             try:
                 result = extract_json_with_retry(response, prompt_for_retry=prompt, max_retries=1)
                 return result, tokens
-            except:
-                return {"raw_response": response}, tokens
+            except Exception as e:
+                return {"error": f"JSON parse failed: {str(e)}", "raw_response": response}, tokens
         except Exception as e:
             return {"error": str(e)}, {"total_tokens": 0}
 
@@ -360,7 +380,7 @@ def render_message_step(step):
 # ==================== MAIN APP ====================
 
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title("🎓 Welcome to AI Tutor Platform")
+    st.title(" Welcome to AI Tutor Platform")
     st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
@@ -512,7 +532,10 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     student_context,
                     unit_config
                 )
-                st.session_state.llm_results[current_step["id"]] = result
+                
+                save_as_key = current_step.get("save_as", current_step["id"])
+                st.session_state.llm_results[save_as_key] = result
+                
                 st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
                 st.session_state.token_usage["total_tokens"] += tokens.get("total_tokens", 0)
@@ -612,7 +635,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("👩‍🏫 Teacher Dashboard")
+        st.title("‍🏫 Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
@@ -625,17 +648,16 @@ elif st.session_state.get("mode") == "admin":
             else:
                 if 'grade_json' in df.columns:
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
-                    df['accuracy'] = df['grade_json'].apply(lambda x: x.get('accuracy') if isinstance(x, dict) else None)
-                    df['fluency'] = df['grade_json'].apply(lambda x: x.get('fluency') if isinstance(x, dict) else None)
-                    df['vocab_score'] = df['grade_json'].apply(lambda x: x.get('vocab_score') if isinstance(x, dict) else None)
-                    df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
+                    df['essay_draft'] = df['grade_json'].apply(lambda x: x.get('draft_grade', {}).get('total') if isinstance(x, dict) and isinstance(x.get('draft_grade'), dict) else None)
+                    df['essay_final'] = df['grade_json'].apply(lambda x: x.get('final_grade', {}).get('total') if isinstance(x, dict) and isinstance(x.get('final_grade'), dict) else None)
+                    df['total'] = df['grade_json'].apply(lambda x: 10 + (x.get('draft_grade', {}).get('total', 0) if isinstance(x.get('draft_grade'), dict) else 0) + (x.get('final_grade', {}).get('total', 0) if isinstance(x.get('final_grade'), dict) else 0) if isinstance(x, dict) else None)
                 st.subheader("📊 Summary Table (Pivot)")
                 if 'total' in df.columns and df['total'].notna().any():
                     pivot_values = 'total'
-                elif 'vocab_score' in df.columns and df['vocab_score'].notna().any():
-                    pivot_values = 'vocab_score'
+                elif 'essay_final' in df.columns and df['essay_final'].notna().any():
+                    pivot_values = 'essay_final'
                 else:
-                    pivot_values = 'accuracy'
+                    pivot_values = 'essay_draft'
                 pivot = df.pivot_table(index=['full_name'], columns='task_id', values=pivot_values, aggfunc='first')
                 st.dataframe(pivot.fillna("—"), use_container_width=True)
                 st.markdown("---")
@@ -644,9 +666,8 @@ elif st.session_state.get("mode") == "admin":
                     with st.expander(f"{row.get('full_name')} - {row.get('task_id')} - {row.get('status')}"):
                         col1, col2 = st.columns(2)
                         with col1:
-                            if pd.notna(row.get('accuracy')): st.metric("Accuracy", f"{row['accuracy']}/20")
-                            if pd.notna(row.get('fluency')): st.metric("Fluency", f"{row['fluency']}/10")
-                            if pd.notna(row.get('vocab_score')): st.metric("Vocab Score", f"{row['vocab_score']}/10")
+                            if pd.notna(row.get('essay_draft')): st.metric("Essay Draft", f"{row['essay_draft']}/20")
+                            if pd.notna(row.get('essay_final')): st.metric("Essay Final", f"{row['essay_final']}/20")
                             if pd.notna(row.get('total')): st.metric("Total", f"{row['total']}/50")
                         with col2:
                             st.write(f"**Status:** {row.get('status')}")
