@@ -266,7 +266,7 @@ def render_question_step(step, min_words=1, audio_enabled=False):
     flags = []
     
     if audio_enabled and whisper_client:
-        st.info("️ Please record your answer in English (30-90 seconds).")
+        st.info("🎙️ Please record your answer in English (30-90 seconds).")
         audio_value = st.audio_input("Record your answer", key=f"audio_{step['id']}")
         if audio_value:
             with st.spinner("Transcribing audio..."):
@@ -327,6 +327,9 @@ def render_vocab_mcq_step(step, vocab_context):
     mcq_list = vocab_context.get("vocab_mcq", [])
     if not mcq_list:
         st.error("Vocabulary questions were not generated. Please contact the teacher.")
+        st.write("Debug: vocab_context keys:", list(vocab_context.keys()))
+        if "raw_response" in vocab_context:
+            st.write("Raw LLM response:", vocab_context["raw_response"])
         return None
     
     answers = {}
@@ -406,7 +409,7 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("👩🏫 I'm a teacher", use_container_width=True):
+        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -541,7 +544,11 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.rerun()
             
             elif step_type == "vocab_mcq":
+                # FIX: Ищем vocab_context под разными ключами
                 vocab_context = st.session_state.llm_results.get("vocab_context", {})
+                if not vocab_context:
+                    vocab_context = st.session_state.llm_results.get("v_generate", {})
+                
                 result = render_vocab_mcq_step(current_step, vocab_context)
                 if result is not None:
                     st.session_state.answers[current_step["id"]] = result
@@ -559,7 +566,9 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     student_context,
                     unit_config
                 )
-                st.session_state.llm_results[current_step["id"]] = result
+                # FIX: Сохраняем результат под ключом save_as (если есть) или под ID шага
+                save_as_key = current_step.get("save_as", current_step["id"])
+                st.session_state.llm_results[save_as_key] = result
                 st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
                 st.session_state.token_usage["total_tokens"] += tokens.get("total_tokens", 0)
@@ -581,7 +590,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
         else:
             st.subheader("Excellent! All steps completed.")
             if "final_report" not in st.session_state:
-                st.markdown("Generating final report... ⏳")
+                st.markdown("Generating final report... ")
                 report_prompt_template = task_data.get("prompts", {}).get("report", "")
                 student_context = task_data.get("student_context", {})
                 context = {
