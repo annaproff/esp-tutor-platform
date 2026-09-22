@@ -2,9 +2,9 @@ meta:
   id: "unit_{{UNIT_NUMBER}}"
   title: "{{UNIT_TITLE}}"
   max_score: 50
-  llm_calls: 2
-  est_tokens: "10-12k"
-  est_cost_rub: "8-12"
+  llm_calls: 5
+  est_tokens: "20-25k"
+  est_cost_rub: "18-25"
 student_context:
   age: 18
   major: mathematics
@@ -13,7 +13,7 @@ student_context:
 settings:
   answers:
     language: en
-    min_words: 1
+    min_words: 15
     russian_detect: "cyrillic > 30%"
   attempts:
     max: 1
@@ -21,9 +21,9 @@ steps:
   - id: start
     type: gate
     say: |
-      Hi! This is a 50-point task.
+      Hi! This is a comprehensive 50-point task.
       Part 1: Grammar - Passive Voice (10 MCQs, 10 pts)
-      Part 2: Tech Habits Interview (6 questions, 40 pts)
+      Part 2: Academic Essay Writing (interactive, 40 pts)
       Press Start when you're ready.
     buttons: ["Start"]
     next: g1
@@ -147,50 +147,95 @@ steps:
       C: "were fixed"
       D: "have been fixed"
     correct: D
-    next: i1
+    next: essay_topic
 
-  # === ЧАСТЬ 2: ИНТЕРВЬЮ (40 баллов) ===
-  - id: i1
-    type: question
-    topic: "Screen Time"
-    audio: true
-    say: "How many hours a day do you typically spend on screens, and what is your most time-consuming digital activity?"
-    next: i2
+  # === ЧАСТЬ 2: ИНТЕРАКТИВНОЕ ЭССЕ (40 баллов) ===
+  - id: essay_topic
+    type: gate
+    say: |
+      **Essay Topic: Word Embeddings and Neural Language Models**
 
-  - id: i2
-    type: question
-    topic: "Cybersecurity"
-    audio: true
-    say: "What specific measures do you take to protect your devices and online accounts from cyber threats (e.g., passwords, two-factor authentication)?"
-    next: i3
+      Write a short academic essay (250-350 words) on the following topic:
 
-  - id: i3
-    type: question
-    topic: "Personal Data Protection"
-    audio: true
-    say: "How carefully do you manage your personal data when installing new apps, accepting cookies, or using social media platforms?"
-    next: i4
+      *"Word embeddings like Word2Vec and GloVe have revolutionized natural language processing. Discuss how these methods work, their advantages over traditional approaches, and their limitations."*
 
-  - id: i4
-    type: question
-    topic: "Digital Boundaries"
-    audio: true
-    say: "Did you experience any parental control over your tech use growing up, and how do you set digital boundaries for yourself now as a young adult?"
-    next: i5
+      **Structure your essay:**
+      - Introduction (1 paragraph): introduce the topic and state your thesis
+      - Body (2 paragraphs): explain how word embeddings work + their advantages/limitations
+      - Conclusion (1 paragraph): summarize and explain why this matters
 
-  - id: i5
-    type: question
-    topic: "Tech & Studies"
-    audio: true
-    say: "As a math student, how does technology impact your focus and productivity when solving complex problems or studying? Does it help or distract you more?"
-    next: i6
+      You will write a plan first, get feedback, then write a draft, get a grade, revise, and finally do a short self-assessment.
 
-  - id: i6
+      Press Start when ready.
+    buttons: ["Start writing plan"]
+    next: essay_plan
+
+  - id: essay_plan
     type: question
-    topic: "Digital Detox & Future"
-    audio: true
-    say: "Do you ever practice a 'digital detox', and how do you imagine your relationship with technology changing in the next 5 years?"
-    after_save_say: "Thank you! Give me a moment to review your answers and calculate your final score."
+    topic: "Step 1: Essay Plan"
+    audio: false
+    say: |
+      **Write your essay plan.**
+
+      For each section (Introduction, Body Paragraph 1, Body Paragraph 2, Conclusion), write 2-3 bullet points describing what you will include.
+
+      Aim for 80-120 words total.
+    next: plan_feedback
+
+  - id: plan_feedback
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0.3
+    prompt: prompts.plan_feedback
+    inputs: ["student_context", "answers.essay_plan"]
+    output: schemas.plan_feedback
+    save_as: plan_feedback
+    next: essay_draft
+
+  - id: essay_draft
+    type: question
+    topic: "Step 2: First Draft"
+    audio: false
+    say: |
+      **Write your first draft (250-350 words).**
+
+      Use the feedback and academic phrases from the previous step. Try to use Passive Voice where appropriate (e.g., "Word embeddings are trained on...", "The method was introduced by...").
+
+      **Academic phrases you can use:**
+      - The primary challenge in... lies in...
+      - To address this computational bottleneck,...
+      - From a probabilistic standpoint, this can be framed as...
+      - In essence, the method transforms...
+      - It is widely acknowledged that...
+      - A significant limitation of this approach is...
+
+      Write your full essay below.
+    next: draft_grade
+
+  - id: draft_grade
+    type: llm
+    model: yandexgpt-pro
+    temperature: 0
+    prompt: prompts.draft_grade
+    inputs: ["student_context", "answers.essay_plan", "answers.essay_draft"]
+    output: schemas.draft_grade
+    save_as: draft_grade
+    next: essay_revision
+
+  - id: essay_revision
+    type: question
+    topic: "Step 3: Revised Draft"
+    audio: false
+    say: |
+      **Revise your essay (250-350 words).**
+
+      Based on the feedback, rewrite your essay. Focus on:
+      - Fixing the errors mentioned
+      - Improving coherence and academic style
+      - Using more precise vocabulary
+      - Using Passive Voice correctly
+
+      This is your FINAL version. Make it your best work.
     next: final_grade
 
   - id: final_grade
@@ -198,9 +243,31 @@ steps:
     model: yandexgpt-pro
     temperature: 0
     prompt: prompts.final_grade
-    inputs: ["student_context", "answers"]
+    inputs: ["student_context", "answers.essay_draft", "answers.essay_revision", "draft_grade"]
     output: schemas.final_grade
     save_as: final_grade
+    next: self_assessment
+
+  - id: self_assessment
+    type: question
+    topic: "Step 4: Self-Assessment"
+    audio: false
+    say: |
+      **Answer these 3 reflection questions briefly (1-2 sentences each):**
+
+      1. What was the most challenging part of writing this essay?
+      2. Which academic phrase from the feedback did you find most useful, and why?
+      3. If you had to add one more paragraph to this essay, what would it be about?
+    next: confirm
+
+  - id: confirm
+    type: question
+    topic: "Final Confirmation"
+    audio: false
+    say: |
+      **Final check.**
+
+      Is everything clear? If yes, please write "Yes!" to receive your final Digital Presentation with personalized vocabulary recommendations.
     next: report
 
   - id: report
@@ -208,7 +275,7 @@ steps:
     model: yandexgpt-pro
     temperature: 0.2
     prompt: prompts.report
-    inputs: ["student_context", "answers", "final_grade"]
+    inputs: ["student_context", "answers", "draft_grade", "final_grade"]
     output: schemas.report
     save_as: report
     next: deliver
@@ -220,103 +287,202 @@ steps:
       send_to_teacher: "final_md + teacher_meta"
       send_to_student: "final_md"
       update_profile: final_grade.profile_notes
-    say: "Here is your comprehensive Digital Presentation. Great work!"
+    say: "Here is your Digital Presentation. Great work!"
     next: done
 
 prompts:
-  final_grade: |
-    You are an expert English tutor. Evaluate the student's 6 interview answers about tech habits.
-    Student is 18 years old, math major, B1 level targeting B2.
+  plan_feedback: |
+    You are an expert academic writing tutor. The student is writing an essay about Word Embeddings and Neural Language Models.
+    Student profile: {student_context}
     
-    Student answers:
-    1 (Screen Time): {i1}
-    2 (Cybersecurity): {i2}
-    3 (Data Protection): {i3}
-    4 (Digital Boundaries): {i4}
-    5 (Tech & Studies): {i5}
-    6 (Digital Detox): {i6}
+    Student's essay plan:
+    {essay_plan}
     
-    Evaluate on two criteria:
-    1. ACCURACY (0-25): grammar (tenses, articles, prepositions), lexical precision, B2 vocabulary usage
-    2. FLUENCY (0-15): coherence, discourse markers, naturalness, length of answers
+    TASK:
+    1. Briefly comment on the plan (2-3 sentences): what is good, what could be added or removed.
+    2. Suggest 4-5 useful academic phrases for starting sentences in this type of essay.
+    3. Give 1-2 specific tips for improving the structure.
     
     Return STRICT JSON only:
     {
-      "accuracy": 0,
-      "fluency": 0,
+      "comment": "Brief comment on the plan...",
+      "academic_phrases": ["The primary challenge in... lies in...", "To address this computational bottleneck,...", ...],
+      "tips": ["Tip 1...", "Tip 2..."]
+    }
+    All content in ENGLISH.
+
+  draft_grade: |
+    You are an expert academic writing tutor. Grade the student's first draft of an essay about Word Embeddings and Neural Language Models.
+    Student profile: {student_context}
+    
+    Student's plan:
+    {essay_plan}
+    
+    Student's first draft:
+    {essay_draft}
+    
+    Evaluate on 4 criteria (each 0-5, total 0-20):
+    1. Task Achievement (0-5): Did the student address the topic? Is the structure correct (intro, 2 body paragraphs, conclusion)?
+    2. Coherence & Cohesion (0-5): Logical flow, linking words, paragraph organization.
+    3. Lexical Resource (0-5): Vocabulary range, academic style, precision. Any L1 (Russian) calques?
+    4. Grammatical Range & Accuracy (0-5): Variety of structures (passive voice, conditionals, participles). Errors.
+    
+    Return STRICT JSON only:
+    {
+      "task_achievement": 0,
+      "coherence": 0,
+      "lexical_resource": 0,
+      "grammar": 0,
       "total": 0,
       "strengths": ["...", "..."],
-      "improvements": ["...", "..."],
+      "weaknesses": ["...", "..."],
+      "errors": [{"original": "...", "corrected": "...", "explanation": "..."}],
+      "recommendations": ["...", "...", "..."],
+      "alternative_intro_or_conclusion": "..."
+    }
+    Rules:
+    - errors: 3-5 items, original = verbatim quote from draft
+    - strengths/weaknesses: 2-3 items each
+    - recommendations: 3-4 specific things to improve in revision
+    - alternative_intro_or_conclusion: one alternative version of intro OR conclusion
+    - All feedback in ENGLISH
+
+  final_grade: |
+    You are an expert academic writing tutor. Grade the student's FINAL revised essay and compare it with the first draft to show progress.
+    Student profile: {student_context}
+    
+    First draft grade: {draft_grade}
+    
+    First draft:
+    {essay_draft}
+    
+    Final revised draft:
+    {essay_revision}
+    
+    Evaluate the FINAL version on the same 4 criteria (each 0-5, total 0-20):
+    1. Task Achievement (0-5)
+    2. Coherence & Cohesion (0-5)
+    3. Lexical Resource (0-5)
+    4. Grammatical Range & Accuracy (0-5)
+    
+    Also identify PROGRESS: what improved compared to the first draft.
+    
+    Return STRICT JSON only:
+    {
+      "task_achievement": 0,
+      "coherence": 0,
+      "lexical_resource": 0,
+      "grammar": 0,
+      "total": 0,
+      "progress": ["...", "..."],
+      "remaining_issues": ["...", "..."],
+      "strengths": ["...", "..."],
       "errors": [{"original": "...", "corrected": "...", "explanation": "..."}],
       "profile_notes": {
         "estimated_level": "B1 | B1+ | B2",
-        "vocabulary_gaps": ["..."],
-        "grammar_gaps": ["..."]
+        "writing_gaps": ["..."],
+        "grammar_gaps": ["..."],
+        "academic_vocabulary_gaps": ["..."]
       }
     }
     Rules:
-    - errors: exactly 2-3 items, original — verbatim quote from answers
-    - strengths/improvements: 2-3 items each
+    - progress: 2-3 specific improvements vs first draft
+    - remaining_issues: 1-2 things still to work on
+    - errors: max 3, only if there are still mistakes
     - All feedback in ENGLISH
 
   report: |
-    You are an expert tutor. Create a final Markdown report.
-    STUDENT: {student_context}
-    STUDENT ANSWERS:
-    1: {i1}
-    2: {i2}
-    3: {i3}
-    4: {i4}
-    5: {i5}
-    6: {i6}
-    GRADE: {final_grade}
+    You are an expert academic writing tutor. Create a final Markdown Digital Presentation.
+    Student profile: {student_context}
     
-    Sections:
+    Draft grade: {draft_grade}
+    Final grade: {final_grade}
+    
+    Student's final essay:
+    {essay_revision}
+    
+    Student's self-assessment:
+    {self_assessment}
+    
+    Create a Markdown report with these sections:
+    
     ## 1. Grammar Keys (Passive Voice)
     Brief table of correct answers for the 10 grammar questions (g1-g10) with explanations for 2-3 tricky cases.
     
-    ## 2. Interview Transcript (Corrected)
-    Rewrite each of the 6 interview answers as natural B2-level English, preserving meaning and demonstrating ideal grammar and vocabulary.
+    ## 2. Essay Writing Journey
+    ### First Draft Score: {draft_grade.total}/20
+    - Task Achievement: {draft_grade.task_achievement}/5
+    - Coherence: {draft_grade.coherence}/5
+    - Lexical Resource: {draft_grade.lexical_resource}/5
+    - Grammar: {draft_grade.grammar}/5
     
-    ## 3. Performance Metrics
+    ### Final Draft Score: {final_grade.total}/20
+    - Task Achievement: {final_grade.task_achievement}/5
+    - Coherence: {final_grade.coherence}/5
+    - Lexical Resource: {final_grade.lexical_resource}/5
+    - Grammar: {final_grade.grammar}/5
+    
+    ### Progress Made
+    {final_grade.progress}
+    
+    ## 3. Detailed Feedback
+    **Strengths:** {final_grade.strengths}
+    **Remaining Issues:** {final_grade.remaining_issues}
+    
+    ## 4. Personalized Vocabulary Upgrade
+    Based on the student's essay, suggest 6-8 advanced B2-C1 academic words/collocations related to NLP, machine learning, and academic writing that the student should learn. For each word provide:
+    - Word/phrase
+    - Definition (in English)
+    - Example sentence (academic style)
+    Focus on words that would naturally elevate the student's writing on this topic.
+    
+    ## 5. Performance Metrics
     | Criterion | Score | Max |
     |-----------|-------|-----|
     | Grammar (Passive Voice) | 10 | 10 |
-    | Interview Accuracy | {final_grade.accuracy} | 25 |
-    | Interview Fluency | {final_grade.fluency} | 15 |
-    | **TOTAL** | **{final_grade.total}** | **50** |
+    | Essay Draft | {draft_grade.total} | 20 |
+    | Essay Final | {final_grade.total} | 20 |
+    | **TOTAL** | **{total}** | **50** |
     
-    ## 4. Detailed Feedback
-    **Strengths**: {final_grade.strengths}
-    **Areas for Improvement**: {final_grade.improvements}
-    
-    ## 5. Personalized Vocabulary Upgrade
-    Based on the student's answers, suggest 6-8 advanced B2-level words/collocations related to technology that the student should learn. For each word provide:
-    - Word/phrase
-    - Definition (in English)
-    - Example sentence
-    Focus on words that would naturally fit the topics discussed (screen time, cybersecurity, data privacy, digital boundaries, etc.).
-    
-    Output ONLY the Markdown.
+    Output ONLY the Markdown. Calculate {total} as 10 + {draft_grade.total} + {final_grade.total}.
 
 schemas:
-  final_grade:
-    accuracy: "int 0..25"
-    fluency: "int 0..15"
-    total: "int 0..50"
+  plan_feedback:
+    comment: "str"
+    academic_phrases: "list"
+    tips: "list"
+  draft_grade:
+    task_achievement: "int 0..5"
+    coherence: "int 0..5"
+    lexical_resource: "int 0..5"
+    grammar: "int 0..5"
+    total: "int 0..20"
     strengths: "list"
-    improvements: "list"
+    weaknesses: "list"
+    errors: "list"
+    recommendations: "list"
+    alternative_intro_or_conclusion: "str"
+  final_grade:
+    task_achievement: "int 0..5"
+    coherence: "int 0..5"
+    lexical_resource: "int 0..5"
+    grammar: "int 0..5"
+    total: "int 0..20"
+    progress: "list"
+    remaining_issues: "list"
+    strengths: "list"
     errors: "list"
     profile_notes:
       estimated_level: "str"
-      vocabulary_gaps: "list"
+      writing_gaps: "list"
       grammar_gaps: "list"
+      academic_vocabulary_gaps: "list"
   report:
     grammar_keys: "str"
-    corrected_interview: "list"
-    metrics: "str"
+    essay_journey: "str"
     feedback: "str"
     vocab_upgrade: "list"
+    metrics: "str"
 
 templates:
   final_md: |
@@ -326,20 +492,20 @@ templates:
     ## 1. Grammar Keys (Passive Voice)
     {report.grammar_keys}
     
-    ## 2. Interview Transcript (Corrected)
-    {for i, c in report.corrected_interview}**Q{i}.** {c}{end}
+    ## 2. Essay Writing Journey
+    {report.essay_journey}
     
-    ## 3. Performance Metrics
-    {report.metrics}
-    
-    ## 4. Detailed Feedback
+    ## 3. Detailed Feedback
     {report.feedback}
     
-    ## 5. Personalized Vocabulary Upgrade
+    ## 4. Personalized Vocabulary Upgrade
     {for v in report.vocab_upgrade}
     **{v.word}** — {v.definition}
     *Example: {v.example}*
     {end}
+    
+    ## 5. Performance Metrics
+    {report.metrics}
     
   teacher_meta: |
     ### For teacher only
