@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  tutor-app:
+    build: .
+    container_name: esp-tutor-platform
+    restart: always
+    ports:
+      - "8501:8501"
+    environment:
+      # Подгружаем переменные из .env файла
+      - YANDEX_API_KEY=${YANDEX_API_KEY}
+      - YANDEX_FOLDER_ID=${YANDEX_FOLDER_ID}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+    volumes:
+      # Сохраняем SQLite базу данных на хосте, чтобы она не удалялась при перезапуске контейнера
+      - db_data:/app/data
+      # Если хочешь хранить БД в корне проекта:
+      # - ./tutor.db:/app/tutor.db
+
+volumes:
+  db_data:
