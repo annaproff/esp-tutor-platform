@@ -29,7 +29,7 @@ steps:
     buttons: ["Start"]
     next: g1
 
-  # === ЧАСТЬ 1: ГРАММАТИКА (10 вопросов) ===
+  # === ЧАСТЬ 1: ГРАММАТИКА ===
   - id: g1
     type: multiple_choice
     topic: "Present Simple Passive"
@@ -150,7 +150,7 @@ steps:
     correct: D
     next: survey_generate
 
-  # === ЧАСТЬ 2: АНКЕТА (6 вопросов, только текст) ===
+  # === ЧАСТЬ 2: АНКЕТА ===
   - id: survey_generate
     type: llm
     model: yandexgpt-pro
@@ -204,7 +204,7 @@ steps:
     after_save_say: "Great! Now let's move to the interview. You'll be able to record audio answers."
     next: interview_generate
 
-  # === ЧАСТЬ 3: ИНТЕРВЬЮ (6 вопросов, аудио + текст) ===
+  # === ЧАСТЬ 3: ИНТЕРВЬЮ ===
   - id: interview_generate
     type: llm
     model: yandexgpt-pro
@@ -291,19 +291,10 @@ steps:
 prompts:
   survey_generate: |
     You are an expert English tutor. Generate a 6-question survey to understand the student's technology preferences and habits.
-    
     Student profile: {student_context}
     
-    TASK: Create 6 engaging questions about:
-    - Devices they use (smartphone, laptop, tablet, smartwatch, etc.)
-    - Apps and software they prefer
-    - How they use technology for studies/work
-    - Their attitude toward cybersecurity and privacy
-    - Screen time and digital habits
-    - Future technology interests
-    
-    Questions should be open-ended to encourage detailed answers.
-    Use natural, conversational English at B1-B2 level.
+    TASK: Create 6 engaging questions about devices, apps, studies, cybersecurity, screen time, and future tech interests.
+    Questions should be open-ended to encourage detailed answers. Use natural, conversational English at B1-B2 level.
     
     Return STRICT JSON only:
     {
@@ -317,7 +308,6 @@ prompts:
 
   interview_generate: |
     You are an expert English tutor. Based on the student's survey answers, generate 6 personalized interview questions.
-    
     Student's survey answers:
     Q1: {s1}
     Q2: {s2}
@@ -327,12 +317,11 @@ prompts:
     Q6: {s6}
     
     TASK:
-    1. Analyze the student's answers to identify 6 advanced B2-level vocabulary items (expressions, collocations) that are relevant to their interests and habits.
+    1. Identify 6 advanced B2-level vocabulary items relevant to the student's answers.
     2. Create 6 interview questions that:
-       - Use Passive Voice (to practice grammar from Part 1)
+       - Use Passive Voice
        - Naturally incorporate the 6 vocabulary items (one per question)
-       - Are personalized based on what the student said in the survey
-       - Encourage extended, thoughtful answers
+       - Reference specific details from the student's survey answers
     
     Return STRICT JSON only:
     {
@@ -344,18 +333,10 @@ prompts:
       "iq5": "How are digital boundaries ______ (passive) by you to ______ (vocab item 5)?",
       "iq6": "In the future, do you think technology will be ______ (passive) to ______ (vocab item 6)?"
     }
-    
-    Rules:
-    - Questions MUST use Passive Voice
-    - Each question should include one vocabulary item from the list
-    - Questions should reference specific details from the student's survey answers
-    - All content in ENGLISH
 
   final_grade: |
     You are an expert English tutor. Evaluate the student's 6 interview answers.
-    
     Vocabulary used in questions: {vocab_used}
-    
     Student answers:
     1: {i1}
     2: {i2}
@@ -365,8 +346,8 @@ prompts:
     6: {i6}
     
     Evaluate on two criteria:
-    1. ACCURACY (0-20): grammar (especially Passive Voice), lexical precision, attempt to use the vocabulary from questions
-    2. FLUENCY (0-10): coherence, discourse markers, naturalness, length of answers
+    1. ACCURACY (0-20): grammar (especially Passive Voice), lexical precision.
+    2. FLUENCY (0-10): coherence, discourse markers, naturalness.
     
     Return STRICT JSON only:
     {
@@ -384,36 +365,18 @@ prompts:
 
   report: |
     You are an expert tutor. Create a final Markdown report.
-    
     STUDENT: {student_context}
-    SURVEY ANSWERS:
-    Q1: {s1}
-    Q2: {s2}
-    Q3: {s3}
-    Q4: {s4}
-    Q5: {s5}
-    Q6: {s6}
-    
-    INTERVIEW QUESTIONS:
-    Q1: {iq1}
-    Q2: {iq2}
-    Q3: {iq3}
-    Q4: {iq4}
-    Q5: {iq5}
-    Q6: {iq6}
-    
+    SURVEY ANSWERS: Q1: {s1}, Q2: {s2}, Q3: {s3}, Q4: {s4}, Q5: {s5}, Q6: {s6}
+    INTERVIEW QUESTIONS: Q1: {iq1}, Q2: {iq2}, Q3: {iq3}, Q4: {iq4}, Q5: {iq5}, Q6: {iq6}
     GRADE: {final_grade}
     
     Sections:
     ## 1. Grammar Keys (Passive Voice)
     Brief table of correct answers for the 10 grammar questions.
-    
     ## 2. Survey Responses
     List all 6 survey questions with student's answers.
-    
     ## 3. Interview Transcript (Corrected)
-    Rewrite each of the 6 interview answers as natural B2-level English, demonstrating ideal use of Passive Voice and the vocabulary from questions.
-    
+    Rewrite each of the 6 interview answers as natural B2-level English, demonstrating ideal use of Passive Voice.
     ## 4. Performance Metrics
     | Criterion | Score | Max |
     |-----------|-------|-----|
@@ -421,11 +384,9 @@ prompts:
     | Interview Accuracy | {final_grade.accuracy} | 20 |
     | Interview Fluency | {final_grade.fluency} | 10 |
     | **TOTAL** | **{final_grade.total}** | **50** |
-    
     ## 5. Detailed Feedback
     **Strengths**: {final_grade.strengths}
     **Areas for Improvement**: {final_grade.improvements}
-    
     Output ONLY the Markdown.
 
 schemas:
