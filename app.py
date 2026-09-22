@@ -105,6 +105,7 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
     raise RuntimeError(f"LLM failed after {max_retries} retries: {last_error}")
 
 def transcribe_audio(audio_bytes):
+    """Transcribe audio using OpenAI Whisper API. Returns text or None."""
     if not whisper_client:
         return None
     try:
@@ -121,7 +122,8 @@ def transcribe_audio(audio_bytes):
         return None
 
 def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
-    # Улучшенный парсер: вырезаем markdown блоки ```json ... ```
+    """Улучшенный парсер: вырезает markdown блоки и ищет JSON."""
+    # Вырезаем markdown code blocks
     text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
     text = text.strip()
@@ -266,6 +268,7 @@ def render_gate_step(step):
     return False
 
 def render_question_step(step, min_words=1, audio_enabled=False):
+    """Рендерит вопрос. Если audio_enabled=True и есть Whisper — показывает аудиозапись + текст."""
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("say"))
     
@@ -273,13 +276,13 @@ def render_question_step(step, min_words=1, audio_enabled=False):
     flags = []
     
     if audio_enabled and whisper_client:
-        st.info("🎙️ Please record your answer in English (30-90 seconds).")
+        st.info("🎙️ Please record your answer in English (30-60 seconds).")
         audio_value = st.audio_input("Record your answer", key=f"audio_{step['id']}")
         if audio_value:
-            with st.spinner("Transcribing audio..."):
+            with st.spinner("🎧 Transcribing audio..."):
                 transcript = transcribe_audio(audio_value.read())
             if transcript:
-                st.success("Transcription:")
+                st.success("✅ Transcription:")
                 st.write(transcript)
                 if st.button("Submit this transcription", type="primary", key=f"submit_audio_{step['id']}"):
                     flags, _ = validate_answer(transcript, min_words=min_words)
@@ -312,6 +315,7 @@ def render_question_step(step, min_words=1, audio_enabled=False):
     return None, []
 
 def render_multiple_choice_step(step):
+    """Стандартный MCQ (для грамматики)."""
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("question"))
     options = step.get("options", {})
@@ -326,10 +330,11 @@ def render_multiple_choice_step(step):
         }
     return None
 
-def render_vocab_mcq_step(step):
+def render_dynamic_mcq_step(step):
+    """Рендерит 10 вопросов по лексике из vocab_context. Оценка считается в Python."""
     st.markdown(f"**{step.get('topic', 'Personalized Vocabulary Practice')}**")
     
-    # Robust lookup for vocab data
+    # Ищем vocab_context в session state
     vocab_data = st.session_state.get('vocab_context', {})
     if not vocab_data or 'vocab_mcq' not in vocab_data:
         vocab_data = st.session_state.llm_results.get('vocab_context', {})
@@ -349,17 +354,21 @@ def render_vocab_mcq_step(step):
         st.info("The AI did not generate the 'vocab_mcq' list correctly. Please try again.")
         return None
     
-    vocab_list_text = vocab_data.get('vocab_list_text', '')
+    # Показываем список лексики
+    vocab_list = vocab_data.get('vocab_list', [])
+    if vocab_list:
+        st.markdown("### 📚 Your Personalized Vocabulary (6 expressions)")
+        st.write("Based on your answers, here are 6 advanced expressions for you to learn:")
+        for i, item in enumerate(vocab_list, 1):
+            expr = item.get('expression', '')
+            defn = item.get('definition', '')
+            ex = item.get('example', '')
+            st.markdown(f"**{i}. {expr}** — {defn}")
+            st.caption(f"Example: {ex}")
+        st.markdown("---")
+    
     mcq_list = vocab_data.get('vocab_mcq', [])
-    
-    if not mcq_list:
-        st.error("No vocabulary questions generated.")
-        return None
-    
-    st.markdown("### Your Personalized Vocabulary:")
-    st.write(vocab_list_text)
-    st.markdown("---")
-    st.write("Now answer these 10 questions based on the vocabulary above:")
+    st.write(f"Now answer these {len(mcq_list)} questions to practice the expressions above:")
     
     answers = {}
     for q in mcq_list:
@@ -406,7 +415,7 @@ def render_vocab_mcq_step(step):
         
         result = {"vocab_score": score, "details": details, "total": 10}
         st.session_state.vocab_grade = result
-        st.success(f"Score: {score}/10")
+        st.success(f"✅ Score: {score}/10")
         return result
     
     return None
@@ -459,7 +468,7 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
+        if st.button("👩🏫 I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -596,7 +605,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.rerun()
             
             elif step_type == "dynamic_mcq":
-                result = render_vocab_mcq_step(current_step)
+                result = render_dynamic_mcq_step(current_step)
                 if result is not None:
                     st.session_state.answers[current_step["id"]] = result
                     st.session_state.llm_results["vocab_grade"] = result
@@ -614,9 +623,11 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     unit_config
                 )
                 
+                # Сохраняем под save_as ключом (если есть) или под ID шага
                 save_as_key = current_step.get("save_as", current_step["id"])
                 st.session_state.llm_results[save_as_key] = result
                 
+                # Если это vocab_context — сохраняем также в отдельную переменную для рендеринга
                 if save_as_key == "vocab_context":
                     st.session_state.vocab_context = result
                 
@@ -641,7 +652,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
         else:
             st.subheader("Excellent! All steps completed.")
             if "final_report" not in st.session_state:
-                st.markdown("Generating final report... ⏳")
+                st.markdown("Generating final report... ")
                 report_prompt_template = task_data.get("prompts", {}).get("report", "")
                 student_context = task_data.get("student_context", {})
                 context = {
