@@ -105,7 +105,6 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
     raise RuntimeError(f"LLM failed after {max_retries} retries: {last_error}")
 
 def transcribe_audio(audio_bytes):
-    """Transcribe audio using OpenAI Whisper API. Returns text or None."""
     if not whisper_client:
         return None
     try:
@@ -319,46 +318,83 @@ def render_multiple_choice_step(step):
         }
     return None
 
-def render_vocab_mcq_step(step, vocab_context):
-    """Рендерит 10 вопросов по лексике как radio-кнопки. Оценка считается в Python."""
-    st.markdown(f"**{step.get('topic', '')}**")
-    st.write("Based on your answers, here is your personalized vocabulary test. Choose the correct option for each question.")
+def render_vocab_mcq_step(step):
+    """Рендерит вопросы по лексике из session_state.llm_results['vocab_context']"""
+    st.markdown(f"**{step.get('topic', 'Personalized Vocabulary Practice')}**")
     
-    mcq_list = vocab_context.get("vocab_mcq", [])
-    if not mcq_list:
-        st.error("Vocabulary questions were not generated. Please contact the teacher.")
-        st.write("Debug: vocab_context keys:", list(vocab_context.keys()))
-        if "raw_response" in vocab_context:
-            st.write("Raw LLM response:", vocab_context["raw_response"])
+    # Получаем данные из session state
+    vocab_data = st.session_state.get('vocab_context', {})
+    
+    # Отладочный вывод
+    st.write(f"**Debug:** vocab_data keys: {list(vocab_data.keys())}")
+    
+    if not vocab_data or 'vocab_mcq' not in vocab_data:
+        st.error("Vocabulary data not found. Please go back and complete the previous steps.")
+        st.write("Available session state keys:", list(st.session_state.keys()))
         return None
+    
+    vocab_list_text = vocab_data.get('vocab_list_text', '')
+    mcq_list = vocab_data.get('vocab_mcq', [])
+    
+    if not mcq_list:
+        st.error("No vocabulary questions generated.")
+        return None
+    
+    # Показываем список лексики
+    st.markdown("### Your Personalized Vocabulary:")
+    st.write(vocab_list_text)
+    st.markdown("---")
+    st.write("Now answer these 10 questions based on the vocabulary above:")
     
     answers = {}
     for q in mcq_list:
-        st.markdown(f"**{q['id']}. {q['question']}**")
-        options = q.get("options", {})
+        q_id = q.get('id', 0)
+        question = q.get('question', '')
+        options = q.get('options', {})
+        correct = q.get('correct', '')
+        
+        st.markdown(f"**{q_id}. {question}**")
+        
+        if not options:
+            st.warning(f"No options for question {q_id}")
+            continue
+        
         display_labels = [f"{k}: {v}" for k, v in options.items()]
-        selected_label = st.radio(f"Select for Q{q['id']}", display_labels, key=f"vocab_mc_{step['id']}_{q['id']}")
-        answers[q['id']] = {
+        selected_label = st.radio(f"Select for Q{q_id}", display_labels, key=f"vocab_q_{q_id}")
+        answers[q_id] = {
             "selected_label": selected_label,
-            "correct": q.get("correct")
+            "correct": correct,
+            "question": question
         }
     
     if st.button("Submit Vocabulary Test", type="primary", key=f"submit_vocab_{step['id']}"):
         score = 0
         details = []
         for q in mcq_list:
-            user_data = answers[q['id']]
+            q_id = q.get('id', 0)
+            if q_id not in answers:
+                continue
+            
+            user_data = answers[q_id]
             selected_key = user_data["selected_label"].split(":")[0].strip()
             is_correct = selected_key == q.get("correct")
+            
             if is_correct:
                 score += 1
+            
             details.append({
-                "id": q['id'],
+                "id": q_id,
+                "question": user_data.get("question", ""),
                 "student": selected_key,
                 "correct": q.get("correct"),
                 "is_correct": is_correct
             })
-        return {"vocab_score": score, "details": details, "total": 10}
+        
+        result = {"vocab_score": score, "details": details, "total": 10}
+        st.session_state.vocab_grade = result
+        st.success(f"Score: {score}/10")
+        return result
+    
     return None
 
 def render_llm_step(step, task_data, answers, profile, student_context, unit_config=None):
@@ -379,7 +415,8 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
             context[key] = str(value)
     
     prompt = format_prompt_with_context(prompt_template, context)
-    with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
+    
+    with st.spinner(" AI is analyzing your answer (this may take 10-20 seconds)..."):
         try:
             response, tokens = call_llm_with_retry(prompt, max_retries=2, temperature=step.get("temperature", 0.2))
             try:
@@ -401,7 +438,7 @@ def render_message_step(step):
 # ==================== MAIN APP ====================
 
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title("🎓 Welcome to AI Tutor Platform")
+    st.title(" Welcome to AI Tutor Platform")
     st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
@@ -433,6 +470,8 @@ if st.session_state.get("mode") == "student" and "student_name" not in st.sessio
                 st.session_state.token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 st.session_state.session_id = None
                 st.session_state.llm_results = {}
+                st.session_state.vocab_context = {}
+                st.session_state.vocab_grade = {}
                 st.rerun()
 
 elif st.session_state.get("mode") == "student" and "student_name" in st.session_state:
@@ -543,13 +582,8 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
             
-            elif step_type == "vocab_mcq":
-                # FIX: Ищем vocab_context под разными ключами
-                vocab_context = st.session_state.llm_results.get("vocab_context", {})
-                if not vocab_context:
-                    vocab_context = st.session_state.llm_results.get("v_generate", {})
-                
-                result = render_vocab_mcq_step(current_step, vocab_context)
+            elif step_type == "dynamic_mcq":
+                result = render_vocab_mcq_step(current_step)
                 if result is not None:
                     st.session_state.answers[current_step["id"]] = result
                     st.session_state.llm_results["vocab_grade"] = result
@@ -566,9 +600,15 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     student_context,
                     unit_config
                 )
-                # FIX: Сохраняем результат под ключом save_as (если есть) или под ID шага
+                
+                # КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: сохраняем под save_as ключом
                 save_as_key = current_step.get("save_as", current_step["id"])
                 st.session_state.llm_results[save_as_key] = result
+                
+                # Если это шаг v_generate, сохраняем также в vocab_context для рендеринга
+                if save_as_key == "vocab_context":
+                    st.session_state.vocab_context = result
+                
                 st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
                 st.session_state.token_usage["total_tokens"] += tokens.get("total_tokens", 0)
@@ -590,7 +630,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
         else:
             st.subheader("Excellent! All steps completed.")
             if "final_report" not in st.session_state:
-                st.markdown("Generating final report... ")
+                st.markdown("Generating final report... ⏳")
                 report_prompt_template = task_data.get("prompts", {}).get("report", "")
                 student_context = task_data.get("student_context", {})
                 context = {
@@ -668,7 +708,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("👩‍🏫 Teacher Dashboard")
+        st.title("👩🏫 Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
@@ -677,7 +717,7 @@ elif st.session_state.get("mode") == "admin":
             df = pd.read_sql_query("SELECT * FROM sessions ORDER BY full_name, created_at", conn)
             conn.close()
             if df.empty:
-                st.info("ℹ️ No student data yet.")
+                st.info("️ No student data yet.")
             else:
                 if 'grade_json' in df.columns:
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
@@ -695,7 +735,7 @@ elif st.session_state.get("mode") == "admin":
                 pivot = df.pivot_table(index=['full_name'], columns='task_id', values=pivot_values, aggfunc='first')
                 st.dataframe(pivot.fillna("—"), use_container_width=True)
                 st.markdown("---")
-                st.subheader("🔍 Detailed Session View")
+                st.subheader(" Detailed Session View")
                 for idx, row in df.iterrows():
                     with st.expander(f"{row.get('full_name')} - {row.get('task_id')} - {row.get('status')}"):
                         col1, col2 = st.columns(2)
@@ -717,7 +757,7 @@ elif st.session_state.get("mode") == "admin":
                         except:
                             st.write("Failed to load")
                 st.markdown("---")
-                st.subheader(" Export to CSV")
+                st.subheader("📥 Export to CSV")
                 export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
                 st.dataframe(export_df, use_container_width=True)
                 csv = export_df.to_csv(index=False).encode('utf-8')
