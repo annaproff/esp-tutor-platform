@@ -119,7 +119,7 @@ def compute_sha256(content):
         content = content.encode('utf-8')
     return hashlib.sha256(content).hexdigest()
 
-def validate_answer(answer, min_words=1, russian_threshold=0.3):
+def validate_answer(answer, min_words=15, russian_threshold=0.3):
     flags = []
     warnings = []
     word_count = len(answer.split())
@@ -130,6 +130,8 @@ def validate_answer(answer, min_words=1, russian_threshold=0.3):
     if cyrillic_chars > len(answer) * russian_threshold:
         flags.append("russian_accepted")
         warnings.append("Please try to answer in English — simple English is totally fine.")
+    if len(answer) < 20:
+        flags.append("fast_answer")
     return flags, warnings
 
 def get_or_create_student(full_name):
@@ -193,6 +195,7 @@ def check_attempts(full_name, task_id, max_attempts=1):
     return count < max_attempts
 
 def load_template_and_unit(template_file, unit_config_file):
+    """Загружает шаблон и конфиг юнита, подставляет переменные"""
     with open(template_file, "r", encoding="utf-8") as f:
         template = yaml.safe_load(f)
     with open(unit_config_file, "r", encoding="utf-8") as f:
@@ -221,36 +224,32 @@ def render_gate_step(step):
         return True
     return False
 
-def render_question_step(step, min_words=1):
+def render_question_step(step, min_words=15):
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("say"))
     user_answer = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
-    if st.button("Submit answer", type="primary", key=f"submit_{step['id']}"):
-        if user_answer and user_answer.strip():
-            flags, warnings = validate_answer(user_answer, min_words=min_words)
-            if warnings:
-                for w in warnings:
-                    st.warning(w)
-                if st.button("Submit anyway", key=f"force_{step['id']}"):
-                    return user_answer, flags
-            else:
-                return user_answer, []
+    if st.button("Submit answer", type="primary"):
+        flags, warnings = validate_answer(user_answer, min_words=min_words)
+        if warnings:
+            for w in warnings:
+                st.warning(w)
+            if st.button("Submit anyway", key="force_send"):
+                return user_answer, flags
         else:
-            st.warning("Please enter some text before submitting.")
+            return user_answer, []
     return None, []
 
 def render_multiple_choice_step(step):
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("question"))
     options = step.get("options", {})
-    display_labels = [f"{k}: {v}" for k, v in options.items()]
-    selected_label = st.radio("Choose your answer:", display_labels, key=f"mc_{step['id']}")
-    if st.button("Submit answer", type="primary", key=f"submit_mc_{step['id']}"):
-        selected_key = selected_label.split(":")[0].strip()
+    option_labels = list(options.keys())
+    selected = st.radio("Choose your answer:", option_labels, key=f"mc_{step['id']}")
+    if st.button("Submit answer", type="primary"):
         return {
-            "selected": options[selected_key],
+            "selected": options[selected],
             "correct": step.get("correct"),
-            "is_correct": selected_key == step.get("correct")
+            "is_correct": options[selected] == step.get("correct")
         }
     return None
 
@@ -270,7 +269,7 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
             context[key] = str(value)
     
     prompt = format_prompt_with_context(prompt_template, context)
-    with st.spinner(" AI is analyzing your answer (this may take 10-20 seconds)..."):
+    with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
         try:
             response, tokens = call_llm_with_retry(prompt, max_retries=2, temperature=step.get("temperature", 0.2))
             try:
@@ -300,7 +299,7 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("‍🏫 I'm a teacher", use_container_width=True):
+        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -365,7 +364,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
             task_data, unit_config = load_template_and_unit(TEMPLATE_FILE, UNIT_FILE_PATH)
             steps = task_data.get("steps", [])
             settings = task_data.get("settings", {}).get("answers", {})
-            min_words = settings.get("min_words", 1)
+            min_words = settings.get("min_words", 15)
             max_attempts = task_data.get("settings", {}).get("attempts", {}).get("max", 1)
             max_score = task_data.get("meta", {}).get("max_score", 50)
         except FileNotFoundError:
@@ -475,8 +474,6 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 }
                 for key, value in st.session_state.answers.items():
                     context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-                
-                # Flattening llm_results for simple str.format()
                 for key, value in st.session_state.llm_results.items():
                     if isinstance(value, dict):
                         context[key] = json.dumps(value, ensure_ascii=False)
@@ -485,20 +482,18 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                                 context[k] = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
                     else:
                         context[key] = str(value)
-                
                 for key, value in student_context.items():
                     if key not in context:
                         context[key] = str(value)
-                
                 report_prompt = format_prompt_with_context(report_prompt_template, context)
                 try:
-                    report_md, tokens = call_llm_with_retry(report_prompt, max_retries=1, temperature=0.3)
+                    feedback_text, tokens = call_llm_with_retry(report_prompt, max_retries=1, temperature=0.3)
                     st.session_state.token_usage["prompt_tokens"] += tokens["prompt_tokens"]
                     st.session_state.token_usage["completion_tokens"] += tokens["completion_tokens"]
                     st.session_state.token_usage["total_tokens"] += tokens["total_tokens"]
-                    report_hash = compute_sha256(report_md)
+                    report_hash = compute_sha256(feedback_text)
                     teacher_meta = f"\n---\n### Teacher Meta (hidden from student)\n- **Flags:** {', '.join(st.session_state.flags) if st.session_state.flags else 'none'}\n- **Token usage:** {st.session_state.token_usage['total_tokens']}\n- **Report hash:** {report_hash}\n- **Completed at:** {datetime.now().isoformat()}\n"
-                    st.session_state.final_report = report_md + teacher_meta
+                    st.session_state.final_report = feedback_text + teacher_meta
                     st.session_state.report_hash = report_hash
                 except Exception as e:
                     st.session_state.final_report = f"Feedback generation error: {e}"
@@ -547,7 +542,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("‍🏫 Teacher Dashboard")
+        st.title("👩‍🏫 Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
@@ -564,7 +559,7 @@ elif st.session_state.get("mode") == "admin":
                     df['essay_task_achievement'] = df['grade_json'].apply(lambda x: x.get('essay_task_achievement') if isinstance(x, dict) else None)
                     df['essay_language'] = df['grade_json'].apply(lambda x: x.get('essay_language') if isinstance(x, dict) else None)
                     df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
-                st.subheader("📊 Summary Table (Pivot)")
+                st.subheader(" Summary Table (Pivot)")
                 if 'total' in df.columns and df['total'].notna().any():
                     pivot_values = 'total'
                 else:
@@ -572,7 +567,7 @@ elif st.session_state.get("mode") == "admin":
                 pivot = df.pivot_table(index=['full_name'], columns='task_id', values=pivot_values, aggfunc='first')
                 st.dataframe(pivot.fillna("—"), use_container_width=True)
                 st.markdown("---")
-                st.subheader("🔍 Detailed Session View")
+                st.subheader(" Detailed Session View")
                 for idx, row in df.iterrows():
                     with st.expander(f"{row.get('full_name')} - {row.get('task_id')} - {row.get('status')}"):
                         col1, col2 = st.columns(2)
