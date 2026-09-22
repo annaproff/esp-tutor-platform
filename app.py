@@ -11,9 +11,6 @@ from datetime import datetime
 from openai import OpenAI
 import time
 
-# ==========================================
-# 1. НАСТРОЙКИ И ИНИЦИАЛИЗАЦИЯ БД (SQLite)
-# ==========================================
 st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide")
 
 YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
@@ -65,12 +62,8 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Инициализируем БД при старте
 init_db()
 
-# ==========================================
-# 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ==========================================
 def is_valid_russian_name(name):
     return bool(re.match(r"^[А-Яа-яЁё\s-]+$", name)) and len(name.split()) >= 2
 
@@ -141,9 +134,6 @@ def validate_answer(answer, min_words=15, russian_threshold=0.3):
         flags.append("fast_answer")
     return flags, warnings
 
-# ==========================================
-# 3. РАБОТА С ПРОФИЛЕМ СТУДЕНТА (SQLite)
-# ==========================================
 def get_or_create_student(full_name):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -214,9 +204,6 @@ def format_prompt_with_context(prompt_template, context_dict):
         st.warning(f"Missing variable in prompt: {e}")
         return prompt_template
 
-# ==========================================
-# 4. ОБРАБОТЧИКИ ШАГОВ
-# ==========================================
 def render_gate_step(step):
     st.markdown(step.get("say", ""))
     buttons = step.get("buttons", ["Start"])
@@ -309,40 +296,12 @@ def render_message_step(step):
             return btn
     return None
 
-# ==========================================
-# 5. УНИВЕРСАЛЬНОЕ ОТОБРАЖЕНИЕ МЕТРИК
-# ==========================================
-def display_grade_metrics(grade, max_score=None):
-    metrics = {
-        "Accuracy": (grade.get("accuracy"), 20),
-        "Fluency": (grade.get("fluency"), 10),
-        "MC Score": (grade.get("mc_score"), 10),
-        "Task Achievement": (grade.get("task_achievement"), 5),
-        "Coherence": (grade.get("coherence"), 5),
-        "Lexical Resource": (grade.get("lexical_resource"), 5),
-        "Grammar": (grade.get("grammar"), 5),
-    }
-    total = grade.get("total")
-    active_metrics = [(name, val, mx) for name, (val, mx) in metrics.items() if val is not None]
-    
-    if active_metrics:
-        cols = st.columns(len(active_metrics))
-        for col, (name, val, mx) in zip(cols, active_metrics):
-            col.metric(name, f"{val}/{mx}")
-    
-    if total is not None:
-        max_display = max_score if max_score else 30
-        st.metric("Total", f"{total}/{max_display}")
-
-# ==========================================
-# 6. ВХОД
-# ==========================================
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title("🎓 Добро пожаловать в AI Tutor Platform")
+    st.title(" Добро пожаловать в AI Tutor Platform")
     st.markdown("Выберите режим входа:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🎓 Я студент", use_container_width=True):
+        if st.button(" Я студент", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
@@ -350,9 +309,6 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
             st.session_state.mode = "admin"
             st.rerun()
 
-# ==========================================
-# 7. РЕЖИМ СТУДЕНТА
-# ==========================================
 if st.session_state.get("mode") == "student" and "student_name" not in st.session_state:
     st.subheader("Вход для студента")
     with st.form("login_form"):
@@ -585,9 +541,6 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 except Exception as e:
                     st.error(f"Ошибка обновления БД: {e}")
 
-# ==========================================
-# 8. РЕЖИМ АДМИНА
-# ==========================================
 elif st.session_state.get("mode") == "admin":
     if "admin_auth" not in st.session_state:
         st.subheader("🔒 Вход для преподавателя")
@@ -611,7 +564,6 @@ elif st.session_state.get("mode") == "admin":
             if df.empty:
                 st.info("ℹ️ Пока нет данных от студентов.")
             else:
-                # Распаковка JSON полей для Pandas
                 if 'grade_json' in df.columns:
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
                     df['accuracy'] = df['grade_json'].apply(lambda x: x.get('accuracy') if isinstance(x, dict) else None)
@@ -650,7 +602,7 @@ elif st.session_state.get("mode") == "admin":
                             st.write(f"**Токены:** {row.get('token_usage')}")
                             st.write(f"**Хеш:** `{row.get('report_hash')[:16]}...`" if pd.notna(row.get('report_hash')) else "Нет хеша")
                         
-                        st.markdown("**📝 Сырые ответы:**")
+                        st.markdown("** Сырые ответы:**")
                         try:
                             answers = json.loads(row['answers']) if pd.notna(row['answers']) and isinstance(row['answers'], str) else row['answers']
                             if isinstance(answers, dict):
