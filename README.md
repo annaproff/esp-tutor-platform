@@ -14,3 +14,7 @@
 3. Настройте переменные окружения (API ключи, у меня YandexGPT; и базу данных SQL, у меня supabase).
 
 👩‍💻 И можно деплоить (у меня timeweb). Все делается вайбкодингом с любой моделькой (мне помогал qwen). 
+
+Мой прототип: https://annaproff-esp-tutor-platform-58d9.twc1.net
+
+Мои задания: https://disk.360.yandex.ru/d/_GRyr260xU0q5g
