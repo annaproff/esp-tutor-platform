@@ -13,8 +13,6 @@
 2. Отредактируйте файлы в папке `tasks/`, добавив свои задания (генерите файлы YAML со своим содержанием).
 3. Настройте переменные окружения (у меня все на Yandex Cloud).
 
-👩‍💻 И можно деплоить (у меня timeweb). Все делается вайбкодингом с любой моделькой (мне помогал qwen). 
+👩‍💻 Мой прототип: https://annaproff-esp-tutor-platform-58d9.twc1.net
 
-Мой прототип: https://annaproff-esp-tutor-platform-58d9.twc1.net
-
-Мои задания: https://disk.360.yandex.ru/d/_GRyr260xU0q5g
+👩‍🏫 Мои задания: https://disk.360.yandex.ru/d/_GRyr260xU0q5g
