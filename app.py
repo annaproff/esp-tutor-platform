@@ -21,7 +21,7 @@ if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
     st.error("Missing environment variables: YANDEX_API_KEY, YANDEX_FOLDER_ID")
     st.stop()
 
-yandex_client = OpenAI(
+client = OpenAI(
     api_key=YANDEX_API_KEY,
     base_url="https://llm.api.cloud.yandex.net/foundationModels/v1"
 )
@@ -84,7 +84,7 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            response = yandex_client.chat.completions.create(
+            response = client.chat.completions.create(
                 model=f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
                 messages=[{"role": "user", "text": prompt}],
                 temperature=temperature
@@ -101,14 +101,14 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
 def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
     for attempt in range(max_retries + 1):
         try:
-            json_match = re.search(r'\{.*\}', text, re.DOTALL)
+            json_match = re.search(r'{.*}', text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
             else:
                 raise ValueError("No JSON object found")
         except Exception as e:
             if attempt < max_retries and prompt_for_retry:
-                retry_prompt = prompt_for_retry + "\n\nIMPORTANT: return ONLY valid JSON, no explanations."
+                retry_prompt = prompt_for_retry + "\n\nВАЖНО: верни ТОЛЬКО валидный JSON без пояснений."
                 text, _ = call_llm_with_retry(retry_prompt, max_retries=0, temperature=0.0)
             else:
                 raise ValueError(f"JSON parse error: {e}")
@@ -121,12 +121,16 @@ def compute_sha256(content):
 
 def validate_answer(answer, min_words=1, russian_threshold=0.3):
     flags = []
-    if len(answer.split()) < min_words:
+    warnings = []
+    word_count = len(answer.split())
+    if word_count < min_words:
         flags.append("too_short_accepted")
+        warnings.append(f"Пожалуйста, напишите чуть подробнее (минимум {min_words} слов).")
     cyrillic_chars = len(re.findall(r'[а-яА-Я]', answer))
     if cyrillic_chars > len(answer) * russian_threshold:
         flags.append("russian_accepted")
-    return flags, []
+        warnings.append("Please try to answer in English — simple English is totally fine.")
+    return flags, warnings
 
 def get_or_create_student(full_name):
     conn = get_db_connection()
@@ -166,7 +170,7 @@ def save_student_profile(student_id, profile_notes):
 
 def format_profile_for_prompt(profile):
     if not profile:
-        return "This is the student's first task — no previous profile notes."
+        return "У студента нет предыдущих заданий — это первая попытка."
     lines = ["Previous profile notes from past tasks:"]
     for key in ["recurring_errors", "resolved_since_last", "estimated_level", "vocabulary_gaps", "grammar_gaps"]:
         if profile.get(key):
@@ -198,27 +202,9 @@ def load_template_and_unit(template_file, unit_config_file):
     template['meta']['title'] = template['meta']['title'].replace('{{UNIT_TITLE}}', unit_config['title'])
     template['student_context']['topic'] = template['student_context']['topic'].replace('{{UNIT_TOPIC}}', unit_config['topic'])
     
-    replacements = {
-        '{{UNIT_TITLE}}': unit_config['title'],
-        '{{UNIT_TOPIC}}': unit_config['topic'],
-        '{{UNIT_GRAMMAR}}': unit_config.get('grammar', ''),
-        '{{SECTION_1_TITLE}}': unit_config.get('section_1_title', 'Grammar'),
-        '{{SECTION_2_TITLE}}': unit_config.get('section_2_title', 'Reading'),
-        '{{SECTION_3_TITLE}}': unit_config.get('section_3_title', 'Essay'),
-    }
+    if 'templates' in template and 'final_md' in template['templates']:
+        template['templates']['final_md'] = template['templates']['final_md'].replace('{{UNIT_TITLE}}', unit_config['title'])
     
-    def replace_in_obj(obj):
-        if isinstance(obj, str):
-            for k, v in replacements.items():
-                obj = obj.replace(k, v)
-            return obj
-        elif isinstance(obj, dict):
-            return {k: replace_in_obj(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [replace_in_obj(item) for item in obj]
-        return obj
-    
-    template = replace_in_obj(template)
     return template, unit_config
 
 def format_prompt_with_context(prompt_template, context_dict):
@@ -238,20 +224,19 @@ def render_gate_step(step):
 def render_question_step(step, min_words=1):
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("say"))
-    
-    user_answer = None
-    flags = []
-    
-    text_input = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
+    user_answer = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
     if st.button("Submit answer", type="primary", key=f"submit_{step['id']}"):
-        if text_input and text_input.strip():
-            flags, _ = validate_answer(text_input, min_words=min_words)
-            user_answer = text_input
+        if user_answer and user_answer.strip():
+            flags, warnings = validate_answer(user_answer, min_words=min_words)
+            if warnings:
+                for w in warnings:
+                    st.warning(w)
+                if st.button("Submit anyway", key=f"force_{step['id']}"):
+                    return user_answer, flags
+            else:
+                return user_answer, []
         else:
             st.warning("Please enter some text before submitting.")
-    
-    if user_answer is not None:
-        return user_answer, flags
     return None, []
 
 def render_multiple_choice_step(step):
@@ -277,8 +262,7 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
         "answers": json.dumps(answers, ensure_ascii=False),
     }
     if unit_config:
-        context["unit_topic"] = unit_config.get("topic", "")
-    
+        context["unit_config"] = json.dumps(unit_config, ensure_ascii=False)
     for key, value in answers.items():
         context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
     for key, value in student_context.items():
@@ -286,15 +270,14 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
             context[key] = str(value)
     
     prompt = format_prompt_with_context(prompt_template, context)
-    
     with st.spinner(" AI is analyzing your answer (this may take 10-20 seconds)..."):
         try:
             response, tokens = call_llm_with_retry(prompt, max_retries=2, temperature=step.get("temperature", 0.2))
             try:
                 result = extract_json_with_retry(response, prompt_for_retry=prompt, max_retries=1)
                 return result, tokens
-            except Exception as e:
-                return {"error": f"JSON parse failed: {str(e)}", "raw_response": response}, tokens
+            except:
+                return {"raw_response": response}, tokens
         except Exception as e:
             return {"error": str(e)}, {"total_tokens": 0}
 
@@ -306,33 +289,7 @@ def render_message_step(step):
             return btn
     return None
 
-def prepare_context_for_report(answers, llm_results, student_context, profile):
-    context = {
-        "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
-        "profile_block": format_profile_for_prompt(profile),
-        "answers": json.dumps(answers, ensure_ascii=False),
-    }
-    
-    for key, value in answers.items():
-        context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-    
-    for key, value in llm_results.items():
-        if isinstance(value, dict):
-            context[key] = json.dumps(value, ensure_ascii=False)
-            for k, v in value.items():
-                flat_key = f"{key}_{k}"
-                if isinstance(v, (dict, list)):
-                    context[flat_key] = json.dumps(v, ensure_ascii=False)
-                else:
-                    context[flat_key] = str(v)
-        else:
-            context[key] = str(value)
-    
-    for key, value in student_context.items():
-        if key not in context:
-            context[key] = str(value)
-    
-    return context
+# ==================== MAIN APP ====================
 
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
     st.title("🎓 Welcome to AI Tutor Platform")
@@ -343,7 +300,7 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
+        if st.button("‍🏫 I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -486,10 +443,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     student_context,
                     unit_config
                 )
-                
-                save_as_key = current_step.get("save_as", current_step["id"])
-                st.session_state.llm_results[save_as_key] = result
-                
+                st.session_state.llm_results[current_step["id"]] = result
                 st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
                 st.session_state.token_usage["total_tokens"] += tokens.get("total_tokens", 0)
@@ -504,52 +458,57 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.rerun()
             
             elif step_type == "action":
-                st.success("Unit completed! Generating report...")
+                st.success("Unit completed! Generating feedback...")
                 st.session_state.current_step_idx = step_idx + 1
                 st.rerun()
         
         else:
             st.subheader("Excellent! All steps completed.")
             if "final_report" not in st.session_state:
-                st.markdown("Generating final report... ")
+                st.markdown("Generating personalized feedback... ⏳")
                 report_prompt_template = task_data.get("prompts", {}).get("report", "")
                 student_context = task_data.get("student_context", {})
+                context = {
+                    "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
+                    "profile_block": format_profile_for_prompt(st.session_state.get("student_profile", {})),
+                    "answers": json.dumps(st.session_state.answers, ensure_ascii=False),
+                }
+                for key, value in st.session_state.answers.items():
+                    context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
                 
-                context = prepare_context_for_report(
-                    st.session_state.answers,
-                    st.session_state.llm_results,
-                    student_context,
-                    st.session_state.get("student_profile", {})
-                )
-                context["student_name"] = st.session_state.student_name
-                context["date"] = datetime.now().strftime("%Y-%m-%d")
+                # Flattening llm_results for simple str.format()
+                for key, value in st.session_state.llm_results.items():
+                    if isinstance(value, dict):
+                        context[key] = json.dumps(value, ensure_ascii=False)
+                        for k, v in value.items():
+                            if k not in context:
+                                context[k] = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+                    else:
+                        context[key] = str(value)
+                
+                for key, value in student_context.items():
+                    if key not in context:
+                        context[key] = str(value)
                 
                 report_prompt = format_prompt_with_context(report_prompt_template, context)
                 try:
-                    report_response, tokens = call_llm_with_retry(report_prompt, max_retries=1, temperature=0.2)
+                    report_md, tokens = call_llm_with_retry(report_prompt, max_retries=1, temperature=0.3)
                     st.session_state.token_usage["prompt_tokens"] += tokens["prompt_tokens"]
                     st.session_state.token_usage["completion_tokens"] += tokens["completion_tokens"]
                     st.session_state.token_usage["total_tokens"] += tokens["total_tokens"]
-                    
-                    try:
-                        report_json = extract_json_with_retry(report_response, prompt_for_retry=report_prompt, max_retries=1)
-                        report_md = report_json.get("full_report", report_response)
-                    except:
-                        report_md = report_response
-                    
                     report_hash = compute_sha256(report_md)
                     teacher_meta = f"\n---\n### Teacher Meta (hidden from student)\n- **Flags:** {', '.join(st.session_state.flags) if st.session_state.flags else 'none'}\n- **Token usage:** {st.session_state.token_usage['total_tokens']}\n- **Report hash:** {report_hash}\n- **Completed at:** {datetime.now().isoformat()}\n"
                     st.session_state.final_report = report_md + teacher_meta
                     st.session_state.report_hash = report_hash
                 except Exception as e:
-                    st.session_state.final_report = f"Report generation error: {e}"
+                    st.session_state.final_report = f"Feedback generation error: {e}"
                     st.session_state.report_hash = None
                 st.rerun()
             else:
-                st.success("Report is ready!")
+                st.success("Feedback is ready!")
                 report_body = st.session_state.final_report.split("---")[0]
                 st.markdown(report_body)
-                st.download_button("📥 Download report (Markdown)", report_body, file_name=f"report_{st.session_state.student_name.replace(' ', '_')}.md", mime="text/markdown")
+                st.download_button("📥 Download feedback (Markdown)", report_body, file_name=f"feedback_{st.session_state.student_name.replace(' ', '_')}.md", mime="text/markdown")
                 try:
                     conn = get_db_connection()
                     cursor = conn.cursor()
@@ -588,7 +547,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("👩‍🏫 Teacher Dashboard")
+        st.title("‍🏫 Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
@@ -635,7 +594,7 @@ elif st.session_state.get("mode") == "admin":
                         except:
                             st.write("Failed to load")
                 st.markdown("---")
-                st.subheader(" Export to CSV")
+                st.subheader("📥 Export to CSV")
                 export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
                 st.dataframe(export_df, use_container_width=True)
                 csv = export_df.to_csv(index=False).encode('utf-8')
