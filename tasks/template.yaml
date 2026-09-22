@@ -2,7 +2,7 @@ meta:
   id: "unit_{{UNIT_NUMBER}}"
   title: "{{UNIT_TITLE}}"
   max_score: 50
-  llm_calls: 4
+  llm_calls: 3
   est_tokens: "18-22k"
   est_cost_rub: "15-22"
 student_context:
@@ -13,7 +13,7 @@ student_context:
 settings:
   answers:
     language: en
-    min_words: 25
+    min_words: 1
     russian_detect: "cyrillic > 30%"
   timing:
     remind_after_hours: 24
@@ -192,30 +192,8 @@ steps:
     next: v_mcq_task
 
   - id: v_mcq_task
-    type: question
+    type: dynamic_mcq
     topic: "Personalized Vocab Practice"
-    say: |
-      Based on your answers, here is your personalized vocabulary list:
-      {vocab_context.vocab_list_text}
-
-      Now, please answer this 10-question multiple-choice test based on Merriam-Webster style collocations of these words.
-      Reply with your answers in a single line (e.g., "1A 2B 3C 4D 5A 6B 7C 8D 9A 10B"):
-
-      {vocab_context.vocab_mcq_text}
-    save_as: answers.v_mcq_raw
-    next: v_mcq_grade
-
-  - id: v_mcq_grade
-    type: llm
-    model: yandexgpt-pro
-    temperature: 0
-    prompt: prompts.v_mcq_grade
-    inputs: ["vocab_context", "answers.v_mcq_raw"]
-    output: schemas.v_mcq_grade
-    checks:
-      - "vocab_score: int 0..10"
-    on_check_fail: "retry 1 time"
-    save_as: vocab_grade
     next: i1
 
   - id: i1
@@ -330,11 +308,11 @@ prompts:
 
     Выбери 6-8 слов из списка {vocab_seed}, наиболее релевантных ответам студента.
     Сгенерируй СТРОГО JSON без markdown:
-    {
+    {{
       "vocab_list_text": "Краткий список из 6-8 продвинутых слов/коллокаций с кратким пояснением на английском.",
       "vocab_mcq_text": "Текст 10 вопросов множественного выбора (1 балл каждый) в формате:\n1. The system automatically ______ redundant files.\nA) compresses B) compiles C) complies D) compensates\n(Используй выбранную лексику, стилизуя под примеры из конкорданса Merriam-Webster)",
       "vocab_mcq": [
-        {"id": 1, "question": "...", "options": {"A": "...", "B": "...", "C": "...", "D": "..."}, "correct": "A"}
+        {{"id": 1, "question": "...", "options": {{"A": "...", "B": "...", "C": "...", "D": "..."}}, "correct": "A"}}
       ],
       "iq1": "Вопрос для интервью 1, использующий Passive Voice и 1-2 слова из выбранной лексики.",
       "iq2": "Вопрос для интервью 2, использующий Passive Voice и 1-2 слова из выбранной лексики.",
@@ -342,22 +320,10 @@ prompts:
       "iq4": "Вопрос для интервью 4, использующий Passive Voice и 1-2 слова из выбранной лексики.",
       "iq5": "Вопрос для интервью 5, использующий Passive Voice и 1-2 слова из выбранной лексики.",
       "iq6": "Вопрос для интервью 6, использующий Passive Voice и 1-2 слова из выбранной лексики."
-    }
+    }}
     Правила:
     - Вопросы интервью должны быть естественными, но целенаправленно провоцировать использование пассива и новой лексики в ответе.
     - Весь сгенерированный контент на АНГЛИЙСКОМ.
-
-  v_mcq_grade: |
-    Ты экспертный тьютор. Проверь ответы студента на тест по персонализированной лексике.
-    Правильные ответы (из vocab_context): {vocab_mcq}
-    Ответы студента: {v_mcq_raw}
-
-    Распарси ответы студента (например, "1A 2B..."). Сравни с правильными.
-    Верни СТРОГО JSON без markdown:
-    {
-      "vocab_score": 0,
-      "details": [{"id": 1, "student": "A", "correct": "A", "is_correct": true}]
-    }
 
   final_grade: |
     Ты экспертный тьютор по английскому языку. Оцени 6 ответов студента на интервью.
@@ -375,19 +341,19 @@ prompts:
     2. FLUENCY (0-10): связность, дискурсивные маркеры, естественность, длина ответов.
 
     Верни СТРОГО JSON без markdown:
-    {
+    {{
       "accuracy": 0,
       "fluency": 0,
       "strengths": ["...", "..."],
       "improvements": ["...", "..."],
-      "errors": [{"original": "...", "corrected": "...", "explanation": "..."}],
-      "profile_notes": {
+      "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
+      "profile_notes": {{
         "recurring_errors": ["..."],
         "resolved_since_last": ["..."],
         "estimated_level": "B1 | B1+ | B2",
         "vocabulary_gaps": ["..."]
-      }
-    }
+      }}
+    }}
     Правила:
     - errors: ровно 2-3 пункта, original — дословная цитата из ответов
     - strengths/improvements: по 2-3 пункта
@@ -426,9 +392,6 @@ schemas:
     iq4: "str"
     iq5: "str"
     iq6: "str"
-  v_mcq_grade:
-    vocab_score: "int 0..10"
-    details: "list"
   final_grade:
     accuracy: "int 0..20"
     fluency: "int 0..10"
