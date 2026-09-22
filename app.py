@@ -114,7 +114,9 @@ def transcribe_audio_yandex(audio_bytes):
         if response.status_code == 200:
             result = response.json().get('result', '')
             return result if result else None
-        return None
+        else:
+            st.error(f"SpeechKit API Error: {response.status_code} - {response.text}")
+            return None
     except Exception as e:
         st.error(f"SpeechKit error: {e}")
         return None
@@ -249,6 +251,19 @@ def format_prompt_with_context(prompt_template, context_dict):
         st.warning(f"Missing variable in prompt: {e}")
         return prompt_template
 
+# === НОВАЯ ФУНКЦИЯ: Заменяет {survey_context.q1} на реальный текст ===
+def resolve_placeholders(text, llm_results):
+    if not isinstance(text, str) or "{" not in text:
+        return text
+    
+    for context_key, context_data in llm_results.items():
+        if isinstance(context_data, dict):
+            for key, value in context_data.items():
+                placeholder = f"{{{context_key}.{key}}}"
+                if placeholder in text:
+                    text = text.replace(placeholder, str(value))
+    return text
+
 def render_gate_step(step):
     st.markdown(step.get("say", ""))
     buttons = step.get("buttons", ["Start"])
@@ -256,9 +271,12 @@ def render_gate_step(step):
         return True
     return False
 
-def render_question_step(step, min_words=1, audio_enabled=False):
+def render_question_step(step, min_words=1, audio_enabled=False, llm_results=None):
+    # Применяем подстановку переменных!
+    say_text = resolve_placeholders(step.get("say", ""), llm_results or {})
+    
     st.markdown(f"**{step.get('topic', '')}**")
-    st.write(step.get("say"))
+    st.write(say_text)
     
     user_answer = None
     flags = []
@@ -360,7 +378,7 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
     st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(" I'm a student", use_container_width=True):
+        if st.button("👤 I'm a student", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
@@ -388,8 +406,6 @@ if st.session_state.get("mode") == "student" and "student_name" not in st.sessio
                 st.session_state.token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
                 st.session_state.session_id = None
                 st.session_state.llm_results = {}
-                st.session_state.survey_context = {}
-                st.session_state.interview_context = {}
                 st.rerun()
 
 elif st.session_state.get("mode") == "student" and "student_name" in st.session_state:
@@ -463,7 +479,13 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
             
             elif step_type == "question":
                 audio_enabled = current_step.get("audio", False)
-                answer, flags = render_question_step(current_step, min_words=min_words, audio_enabled=audio_enabled)
+                # ПЕРЕДАЕМ llm_results для подстановки {survey_context.q1}
+                answer, flags = render_question_step(
+                    current_step, 
+                    min_words=min_words, 
+                    audio_enabled=audio_enabled,
+                    llm_results=st.session_state.llm_results
+                )
                 if answer is not None:
                     st.session_state.answers[current_step["id"]] = answer
                     st.session_state.flags.extend(flags)
@@ -513,11 +535,6 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 
                 save_as_key = current_step.get("save_as", current_step["id"])
                 st.session_state.llm_results[save_as_key] = result
-                
-                if save_as_key == "survey_context":
-                    st.session_state.survey_context = result
-                elif save_as_key == "interview_context":
-                    st.session_state.interview_context = result
                 
                 st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
@@ -618,7 +635,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("👩🏫 Teacher Dashboard")
+        st.title("👩‍🏫 Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
@@ -627,7 +644,7 @@ elif st.session_state.get("mode") == "admin":
             df = pd.read_sql_query("SELECT * FROM sessions ORDER BY full_name, created_at", conn)
             conn.close()
             if df.empty:
-                st.info("️ No student data yet.")
+                st.info("ℹ️ No student data yet.")
             else:
                 if 'grade_json' in df.columns:
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
