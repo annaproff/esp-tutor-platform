@@ -10,6 +10,7 @@ meta:
     major: mathematics
     level: "B1 (target: B2)"
     topic: "{{UNIT_TOPIC}}"
+
 settings:
   answers:
     language: en
@@ -17,6 +18,7 @@ settings:
     russian_detect: "cyrillic > 30%"
   attempts:
     max: 1
+
 steps:
   - id: start
     type: gate
@@ -216,7 +218,6 @@ steps:
     temperature: 0.3
     prompt: prompts.report
     inputs: ["student_context", "answers", "final_grade"]
-    # ВАЖНО: нет поля output — значит код вернет текст как есть, без парсинга JSON
     save_as: report
     next: deliver
 
@@ -260,7 +261,7 @@ prompts:
     3. ESSAY LANGUAGE (0-10): Grammar (especially Passive Voice), vocabulary range, coherence, academic style.
     
     Return STRICT JSON only:
-    {
+    {{
       "reading_score": 0,
       "essay_task_achievement": 0,
       "essay_language": 0,
@@ -268,16 +269,16 @@ prompts:
       "reading_feedback": "Brief comment on reading answers",
       "essay_strengths": ["...", "..."],
       "essay_improvements": ["...", "..."],
-      "errors": [{"original": "...", "corrected": "...", "explanation": "..."}],
+      "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
       "recommended_vocabulary": [
-        {"word": "...", "definition": "...", "example": "..."}
+        {{"word": "...", "definition": "...", "example": "..."}}
       ],
-      "profile_notes": {
+      "profile_notes": {{
         "estimated_level": "B1 | B1+ | B2",
         "vocabulary_gaps": ["..."],
         "grammar_gaps": ["..."]
-      }
-    }
+      }}
+    }}
     
     Rules:
     - errors: 2-3 items from the essay, original — verbatim quote
