@@ -1,3 +1,7 @@
+--- public/app_fixed.py (原始)
+
+
++++ public/app_fixed.py (修改后)
 import streamlit as st
 import os
 import re
@@ -21,9 +25,13 @@ if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
     st.error("Missing environment variables: YANDEX_API_KEY, YANDEX_FOLDER_ID")
     st.stop()
 
+# =====================================================================
+# ИСПРАВЛЕНИЕ 1: Правильный base_url + добавлен project=YANDEX_FOLDER_ID
+# =====================================================================
 client = OpenAI(
     api_key=YANDEX_API_KEY,
-    base_url="https://llm.api.cloud.yandex.net/foundationModels/v1"
+    project=YANDEX_FOLDER_ID,                                    # ← ДОБАВЛЕНО
+    base_url="https://ai.api.cloud.yandex.net/v1"               # ← ИСПРАВЛЕНО (было: llm.api.cloud.yandex.net/foundationModels/v1)
 )
 
 DB_NAME = "tutor.db"
@@ -80,14 +88,17 @@ def count_tokens_in_response(response):
         pass
     return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
-# ИСПРАВЛЕНО: для API-ключа нужна только модель, без префикса gpt://{folder_id}/
+# =====================================================================
+# ИСПРАВЛЕНИЕ 2: model в формате gpt://{folder_id}/model_name
+# ИСПРАВЛЕНИЕ 3: "content" вместо "text" в messages
+# =====================================================================
 def call_llm_with_retry(prompt, max_retries=2, temperature=0.2, model_name="yandexgpt-lite"):
     last_error = None
     for attempt in range(max_retries + 1):
         try:
             response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "text": prompt}],
+                model=f"gpt://{YANDEX_FOLDER_ID}/{model_name}",   # ← ИСПРАВЛЕНО (было просто model_name)
+                messages=[{"role": "user", "content": prompt}],    # ← ИСПРАВЛЕНО (было "text")
                 temperature=temperature
             )
             content = response.choices[0].message.content
@@ -201,15 +212,14 @@ def load_template_and_unit(template_file, unit_config_file):
         template = yaml.safe_load(f)
     with open(unit_config_file, "r", encoding="utf-8") as f:
         unit_config = json.load(f)
-    
-    # ИСПРАВЛЕНО: student_context находится внутри meta
+
     template['meta']['id'] = template['meta']['id'].replace('{{UNIT_NUMBER}}', unit_config['unit_number'])
     template['meta']['title'] = template['meta']['title'].replace('{{UNIT_TITLE}}', unit_config['title'])
     template['meta']['student_context']['topic'] = template['meta']['student_context']['topic'].replace('{{UNIT_TOPIC}}', unit_config['topic'])
-    
+
     if 'templates' in template and 'final_md' in template['templates']:
         template['templates']['final_md'] = template['templates']['final_md'].replace('{{UNIT_TITLE}}', unit_config['title'])
-    
+
     return template, unit_config
 
 def format_prompt_with_context(prompt_template, context_dict):
@@ -286,46 +296,46 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
     Если output есть — парсим JSON. Если нет — возвращаем текст как есть.
     """
     prompt_template = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
-    
+
     # Определяем модель из шага или используем дефолтную
     model_name = step.get("model", "yandexgpt-lite")
-    
+
     # Формируем контекст
     context = {
         "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
         "profile_block": format_profile_for_prompt(profile),
     }
-    
+
     if unit_config:
         context["unit_config"] = json.dumps(unit_config, ensure_ascii=False)
-    
+
     # Разворачиваем answers (answers.q1 -> q1)
     flat_answers = flatten_answers(answers)
     context.update(flat_answers)
     context["answers"] = json.dumps(answers, ensure_ascii=False)
     context["answers_numbered"] = "\n".join([f"{i+1}. {v}" for i, v in enumerate(flat_answers.values())])
-    
+
     # Разворачиваем student_context
     for key, value in student_context.items():
         if key not in context:
             context[key] = str(value)
-    
+
     # Разворачиваем предыдущие LLM результаты (final_grade.reading_score -> final_grade_reading_score)
     llm_results = st.session_state.get("llm_results", {})
     flat_llm = flatten_llm_results(llm_results)
     context.update(flat_llm)
-    
+
     prompt = format_prompt_with_context(prompt_template, context)
-    
+
     with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
         try:
             response, tokens = call_llm_with_retry(
-                prompt, 
-                max_retries=2, 
+                prompt,
+                max_retries=2,
                 temperature=step.get("temperature", 0.2),
                 model_name=model_name
             )
-            
+
             # Проверяем, ожидается ли JSON output
             output_schema = step.get("output")
             if output_schema and output_schema in task_data.get("schemas", {}):
@@ -343,7 +353,7 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
                 # Ожидаем Markdown/текст (например, report) — возвращаем как есть
                 st.success("✅ Text response received")
                 return {"feedback_text": response}, tokens
-                
+
         except Exception as e:
             st.error(f"❌ LLM call failed: {e}")
             return {"error": str(e)}, {"total_tokens": 0}
@@ -372,26 +382,89 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
             st.rerun()
 
 if st.session_state.get("mode") == "student" and "student_name" not in st.session_state:
-    st.subheader("Student Login")
-    with st.form("login_form"):
-        fio = st.text_input("Surname and Name (in Russian)", placeholder="Иванов Иван")
-        submitted = st.form_submit_button("Start session")
-        if submitted:
-            if not is_valid_russian_name(fio):
-                st.error("Please enter Surname and Name in Russian.")
-            else:
-                fio_clean = fio.strip()
-                st.session_state.student_name = fio_clean
-                student_id, profile = get_or_create_student(fio_clean)
-                st.session_state.student_id = student_id
-                st.session_state.student_profile = profile
-                st.session_state.current_step_idx = 0
-                st.session_state.answers = {}
-                st.session_state.flags = []
-                st.session_state.token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                st.session_state.session_id = None
-                st.session_state.llm_results = {}
+    st.subheader("👤 Student Login")
+    full_name = st.text_input("Enter your full name (in Russian):")
+    if st.button("Continue", type="primary"):
+        if full_name and is_valid_russian_name(full_name):
+            student_id, profile = get_or_create_student(full_name)
+            st.session_state.student_name = full_name
+            st.session_state.student_id = student_id
+            st.session_state.student_profile = profile
+            st.session_state.current_step_idx = 0
+            st.session_state.answers = {}
+            st.session_state.flags = []
+            st.session_state.token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            st.session_state.session_id = None
+            st.session_state.llm_results = {}
+            st.rerun()
+        elif full_name:
+            st.error("Please enter a valid Russian full name (at least 2 words, Cyrillic letters only).")
+        else:
+            st.error("Please enter your name.")
+
+elif st.session_state.get("mode") == "admin":
+    if "admin_auth" not in st.session_state:
+        st.subheader("🔒 Teacher Login")
+        pwd = st.text_input("Enter admin password", type="password")
+        if st.button("Login"):
+            if pwd == ADMIN_PASSWORD:
+                st.session_state.admin_auth = True
                 st.rerun()
+            else:
+                st.error("Invalid password")
+    else:
+        st.title("👩‍🏫 Teacher Dashboard")
+        if st.button("Logout from admin"):
+            del st.session_state.admin_auth
+            st.rerun()
+
+        try:
+            conn = get_db_connection()
+            df = pd.read_sql_query("SELECT * FROM sessions ORDER BY full_name, created_at", conn)
+            conn.close()
+
+            if df.empty:
+                st.info("ℹ️ No student data yet.")
+            else:
+                if 'grade_json' in df.columns:
+                    df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
+                    df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
+
+                st.subheader("Summary Table")
+                if 'total' in df.columns and df['total'].notna().any():
+                    pivot = df.pivot_table(index=['full_name'], columns='task_id', values='total', aggfunc='first')
+                    st.dataframe(pivot.fillna("—"), use_container_width=True)
+
+                st.markdown("---")
+                st.subheader("Detailed Session View")
+                for idx, row in df.iterrows():
+                    with st.expander(f"{row.get('full_name')} - {row.get('task_id')} - {row.get('status')}"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if pd.notna(row.get('total')):
+                                st.metric("Total", f"{row['total']}")
+                        with col2:
+                            st.write(f"Status: {row.get('status')}")
+                            st.write(f"Tokens: {row.get('token_usage')}")
+                            st.write(f"Hash: `{row.get('report_hash')[:16]}...`" if pd.notna(row.get('report_hash')) else "No hash")
+                        st.markdown("Raw answers:")
+                        try:
+                            answers = json.loads(row['answers']) if pd.notna(row['answers']) and isinstance(row['answers'], str) else row['answers']
+                            if isinstance(answers, dict):
+                                for q_id, answer in answers.items():
+                                    st.markdown(f"**{q_id}:** {answer}")
+                        except:
+                            st.write("Failed to load")
+
+                st.markdown("---")
+                st.subheader("📥 Export to CSV")
+                export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
+                st.dataframe(export_df, use_container_width=True)
+                csv = export_df.to_csv(index=False).encode('utf-8')
+                st.download_button("Download CSV", csv, "student_results.csv", "text/csv")
+
+        except Exception as e:
+            st.error(f"Error: {e}")
 
 elif st.session_state.get("mode") == "student" and "student_name" in st.session_state:
     with st.sidebar:
@@ -499,7 +572,6 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.rerun()
 
             elif step_type == "llm":
-                # ИСПРАВЛЕНО: student_context находится внутри meta
                 student_context = task_data.get("meta", {}).get("student_context", {})
                 result, tokens = render_llm_step(
                     current_step,
@@ -530,13 +602,13 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
 
         else:
             st.subheader("Excellent! All steps completed.")
-            
+
             if "final_report" not in st.session_state:
                 st.markdown("Generating personalized feedback... ⏳")
-                
+
                 # Берем уже сгенерированный report из llm_results
                 report_data = st.session_state.llm_results.get("report", {})
-                
+
                 if "feedback_text" in report_data:
                     feedback_text = report_data["feedback_text"]
                 elif "raw_response" in report_data:
@@ -545,25 +617,25 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     feedback_text = report_data["text_response"]
                 else:
                     feedback_text = str(report_data)
-                
+
                 report_hash = compute_sha256(feedback_text)
                 teacher_meta = f"\n---\n### Teacher Meta (hidden from student)\n- **Flags:** {', '.join(st.session_state.flags) if st.session_state.flags else 'none'}\n- **Token usage:** {st.session_state.token_usage.get('total_tokens', 'N/A')}\n- **Report hash:** {report_hash}\n- **Completed at:** {datetime.now().isoformat()}\n"
-                
+
                 st.session_state.final_report = feedback_text + teacher_meta
                 st.session_state.report_hash = report_hash
                 st.rerun()
             else:
                 st.success("✅ Feedback is ready!")
-                
+
                 # Разделяем student и teacher части
                 report_parts = st.session_state.final_report.split("---\n### Teacher Meta")
                 report_body = report_parts[0]
                 teacher_meta = report_parts[1] if len(report_parts) > 1 else ""
-                
+
                 # Показываем студенту
                 st.markdown("### 📋 Your Personalized Feedback")
                 st.markdown(report_body)
-                
+
                 # Кнопка скачивания
                 st.download_button(
                     label="📥 Download Feedback (Markdown)",
@@ -571,24 +643,24 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     file_name=f"feedback_{st.session_state.student_name.replace(' ', '_')}.md",
                     mime="text/markdown"
                 )
-                
+
                 # Показываем teacher meta в expander
                 if teacher_meta:
                     with st.expander("👩‍🏫 Teacher Meta (hidden from student)"):
                         st.markdown(teacher_meta)
-                
+
                 # Сохраняем в БД
                 try:
                     conn = get_db_connection()
                     cursor = conn.cursor()
                     cursor.execute("""
-                        UPDATE sessions SET 
-                            status = 'completed', 
-                            grade_json = ?, 
-                            report_hash = ?, 
-                            token_usage = ?, 
-                            answers = ?, 
-                            completed_at = ? 
+                        UPDATE sessions SET
+                            status = 'completed',
+                            grade_json = ?,
+                            report_hash = ?,
+                            token_usage = ?,
+                            answers = ?,
+                            completed_at = ?
                         WHERE id = ?
                     """, (
                         json.dumps(st.session_state.llm_results, ensure_ascii=False),
@@ -599,84 +671,20 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                         st.session_state.session_id
                     ))
                     conn.commit()
-                    
+
                     # Обновляем профиль студента
                     profile_notes = None
                     for result in st.session_state.llm_results.values():
                         if isinstance(result, dict) and "profile_notes" in result:
                             profile_notes = result["profile_notes"]
                             break
-                    
+
                     if profile_notes:
                         save_student_profile(st.session_state.student_id, profile_notes)
                         st.session_state.student_profile.update(profile_notes)
-                    
+
                     conn.close()
                     st.success("✅ Results saved to database! Profile updated.")
-                    
+
                 except Exception as e:
                     st.error(f"Database update error: {e}")
-
-elif st.session_state.get("mode") == "admin":
-    if "admin_auth" not in st.session_state:
-        st.subheader("🔒 Teacher Login")
-        pwd = st.text_input("Enter admin password", type="password")
-        if st.button("Login"):
-            if pwd == ADMIN_PASSWORD:
-                st.session_state.admin_auth = True
-                st.rerun()
-            else:
-                st.error("Invalid password")
-    else:
-        st.title("👩‍ Teacher Dashboard")
-        if st.button("Logout from admin"):
-            del st.session_state.admin_auth
-            st.rerun()
-
-        try:
-            conn = get_db_connection()
-            df = pd.read_sql_query("SELECT * FROM sessions ORDER BY full_name, created_at", conn)
-            conn.close()
-
-            if df.empty:
-                st.info("ℹ️ No student data yet.")
-            else:
-                if 'grade_json' in df.columns:
-                    df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
-                    df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
-
-                st.subheader("Summary Table")
-                if 'total' in df.columns and df['total'].notna().any():
-                    pivot = df.pivot_table(index=['full_name'], columns='task_id', values='total', aggfunc='first')
-                    st.dataframe(pivot.fillna("—"), use_container_width=True)
-
-                st.markdown("---")
-                st.subheader("Detailed Session View")
-                for idx, row in df.iterrows():
-                    with st.expander(f"{row.get('full_name')} - {row.get('task_id')} - {row.get('status')}"):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if pd.notna(row.get('total')):
-                                st.metric("Total", f"{row['total']}")
-                        with col2:
-                            st.write(f"Status: {row.get('status')}")
-                            st.write(f"Tokens: {row.get('token_usage')}")
-                            st.write(f"Hash: `{row.get('report_hash')[:16]}...`" if pd.notna(row.get('report_hash')) else "No hash")
-                        st.markdown("Raw answers:")
-                        try:
-                            answers = json.loads(row['answers']) if pd.notna(row['answers']) and isinstance(row['answers'], str) else row['answers']
-                            if isinstance(answers, dict):
-                                for q_id, answer in answers.items():
-                                    st.markdown(f"**{q_id}:** {answer}")
-                        except:
-                            st.write("Failed to load")
-
-                st.markdown("---")
-                st.subheader("📥 Export to CSV")
-                export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
-                st.dataframe(export_df, use_container_width=True)
-                csv = export_df.to_csv(index=False).encode('utf-8')
-                st.download_button("Download CSV", csv, "student_results.csv", "text/csv")
-
-        except Exception as e:
-            st.error(f"Error: {e}")
