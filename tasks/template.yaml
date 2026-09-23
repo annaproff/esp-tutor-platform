@@ -1,3 +1,7 @@
+--- public/template.yaml (原始)
+
+
++++ public/template.yaml (修改后)
 meta:
   id: "unit_{{UNIT_NUMBER}}"
   title: "{{UNIT_TITLE}}"
@@ -24,11 +28,11 @@ steps:
     type: gate
     say: |
       Hi! This is a 50-point task based on the article "Distributed Representations of Words and Phrases" (Mikolov et al., 2013).
-      
+
       **Part 1:** Grammar - Passive Voice (10 MCQs, 10 pts)
       **Part 2:** Reading Comprehension - Scanning (5 questions, 15 pts)
       **Part 3:** Opinion Essay (150-200 words, 25 pts)
-      
+
       Press Start when you're ready.
     buttons: ["Start"]
     next: g1
@@ -159,7 +163,7 @@ steps:
     say: |
       Based on the article "Distributed Representations of Words and Phrases" (Mikolov et al., 2013):
       https://arxiv.org/abs/1310.4546
-      
+
       What year does the earliest use of word representations date back to?
     next: r2
 
@@ -196,15 +200,15 @@ steps:
     topic: "Opinion Essay"
     say: |
       Write a short essay (150-200 words) expressing your opinion on the following topic:
-      
+
       "Do you think the approach described in the article (using mathematical vectors to represent words) will change how we teach languages in the future? Why or why not?"
-      
+
       Try to use Passive Voice where appropriate and academic vocabulary.
     next: final_grade
 
   - id: final_grade
     type: llm
-    model: yandexgpt-pro
+    model: yandexgpt-5-lite
     temperature: 0
     prompt: prompts.final_grade
     inputs: ["student_context", "answers"]
@@ -214,7 +218,7 @@ steps:
 
   - id: report
     type: llm
-    model: yandexgpt-pro
+    model: yandexgpt-5-lite
     temperature: 0.3
     prompt: prompts.report
     inputs: ["student_context", "answers", "final_grade"]
@@ -234,32 +238,32 @@ steps:
 prompts:
   final_grade: |
     You are an expert English tutor. Evaluate the student's reading comprehension answers and opinion essay.
-    
+
     Student: 18 y.o., math major, B1 targeting B2.
     Article: "Distributed Representations of Words and Phrases and their Compositionality" (Mikolov et al., 2013)
-    
+
     READING ANSWERS (5 questions):
     Q1 (year of earliest word representations): {r1}
     Q2 (words trained per day): {r2}
     Q3 (subsampling formula): {r3}
     Q4 (threshold t value): {r4}
     Q5 (vector dimensionality): {r5}
-    
+
     Correct answers for reference:
     Q1: 1986
     Q2: More than 100 billion words
     Q3: P(wi) = 1 - sqrt(t / f(wi))
     Q4: Around 10^-5
     Q5: 300-dimensional vectors
-    
+
     ESSAY (opinion on whether vector representations will change language teaching):
     {essay_write}
-    
+
     Evaluate on three criteria:
     1. READING ACCURACY (0-15): How many of the 5 reading questions are answered correctly? Give 3 points per correct answer.
     2. ESSAY TASK ACHIEVEMENT (0-15): Is the opinion clearly stated? Are arguments supported? Is the length appropriate (150-200 words)?
     3. ESSAY LANGUAGE (0-10): Grammar (especially Passive Voice), vocabulary range, coherence, academic style.
-    
+
     Return STRICT JSON only:
     {{
       "reading_score": 0,
@@ -279,7 +283,7 @@ prompts:
         "grammar_gaps": ["..."]
       }}
     }}
-    
+
     Rules:
     - errors: 2-3 items from the essay, original — verbatim quote
     - recommended_vocabulary: 6-8 advanced B2-C1 words related to NLP, machine learning, or academic writing that the student should learn
@@ -287,11 +291,11 @@ prompts:
 
   report: |
     You are a friendly English tutor. Write a personalized feedback message to the student based on their results.
-    
+
     STUDENT: 18 years old, math major, B1-B2 level.
-    
+
     GRAMMAR TEST: 10/10 (all correct!)
-    
+
     READING COMPREHENSION:
     Student's answers:
     Q1 (year): {r1}
@@ -299,30 +303,30 @@ prompts:
     Q3 (formula): {r3}
     Q4 (threshold t): {r4}
     Q5 (dimensionality): {r5}
-    
+
     Correct answers: Q1: 1986, Q2: More than 100 billion words, Q3: P(wi) = 1 - sqrt(t / f(wi)), Q4: Around 10^-5, Q5: 300-dimensional vectors
-    
+
     Reading score: {final_grade_reading_score}/15
     Reading feedback: {final_grade_reading_feedback}
-    
+
     ESSAY:
     {essay_write}
-    
+
     Essay scores:
     - Task Achievement: {final_grade_essay_task_achievement}/15
     - Language: {final_grade_essay_language}/10
-    
+
     Essay strengths: {final_grade_essay_strengths}
     Essay improvements: {final_grade_essay_improvements}
-    
+
     Please write a warm, personalized feedback message in English. Include:
     1. Brief analysis of their reading and essay results (what they did well, what needs work)
     2. Specific recommendations for grammar (especially Passive Voice)
     3. 6-8 advanced B2-C1 words/collocations related to NLP/math they should learn (with definitions and examples)
     4. A motivating conclusion
-    
+
     Write simply and clearly, like a tutor talking to a student. No complex markdown structures, just clear text with basic formatting.
-    
+
     Output ONLY the Markdown feedback text. Do NOT wrap in JSON.
 
 schemas:
@@ -344,7 +348,7 @@ schemas:
 templates:
   final_md: |
     {report_feedback_text}
-    
+
   teacher_meta: |
     ### For teacher only
     Raw answers: {answers_raw}
