@@ -1,7 +1,3 @@
---- public/template.yaml (原始)
-
-
-+++ public/template.yaml (修改后)
 meta:
   id: "unit_{{UNIT_NUMBER}}"
   title: "{{UNIT_TITLE}}"
