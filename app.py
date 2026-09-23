@@ -101,7 +101,7 @@ def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
 def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
     for attempt in range(max_retries + 1):
         try:
-            json_match = re.search(r'{.*}', text, re.DOTALL)
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
             else:
@@ -195,19 +195,15 @@ def check_attempts(full_name, task_id, max_attempts=1):
     return count < max_attempts
 
 def load_template_and_unit(template_file, unit_config_file):
-    """Загружает шаблон и конфиг юнита, подставляет переменные"""
     with open(template_file, "r", encoding="utf-8") as f:
         template = yaml.safe_load(f)
     with open(unit_config_file, "r", encoding="utf-8") as f:
         unit_config = json.load(f)
-    
     template['meta']['id'] = template['meta']['id'].replace('{{UNIT_NUMBER}}', unit_config['unit_number'])
     template['meta']['title'] = template['meta']['title'].replace('{{UNIT_TITLE}}', unit_config['title'])
     template['student_context']['topic'] = template['student_context']['topic'].replace('{{UNIT_TOPIC}}', unit_config['topic'])
-    
     if 'templates' in template and 'final_md' in template['templates']:
         template['templates']['final_md'] = template['templates']['final_md'].replace('{{UNIT_TITLE}}', unit_config['title'])
-    
     return template, unit_config
 
 def format_prompt_with_context(prompt_template, context_dict):
@@ -216,6 +212,32 @@ def format_prompt_with_context(prompt_template, context_dict):
     except KeyError as e:
         st.warning(f"Missing variable in prompt: {e}")
         return prompt_template
+
+def flatten_answers(answers):
+    """Разворачивает answers.q1 -> q1, answers.mc1 -> mc1 и т.д."""
+    flat = {}
+    for key, value in answers.items():
+        if isinstance(value, dict):
+            for k, v in value.items():
+                flat[k] = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+        else:
+            flat[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return flat
+
+def flatten_llm_results(llm_results):
+    """Разворачивает вложенные поля: final_grade.reading_score -> final_grade_reading_score"""
+    flat = {}
+    for key, value in llm_results.items():
+        if isinstance(value, dict):
+            flat[key] = json.dumps(value, ensure_ascii=False)
+            for k, v in value.items():
+                flat[f"{key}_{k}"] = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+                # Дополнительное разворачивание для вложенных списков/словарей
+                if isinstance(v, (list, dict)):
+                    flat[f"{key}_{k}"] = json.dumps(v, ensure_ascii=False)
+        else:
+            flat[key] = str(value)
+    return flat
 
 def render_gate_step(step):
     st.markdown(step.get("say", ""))
@@ -233,7 +255,7 @@ def render_question_step(step, min_words=15):
         if warnings:
             for w in warnings:
                 st.warning(w)
-            if st.button("Submit anyway", key="force_send"):
+            if st.button("Submit anyway", key=f"force_send_{step['id']}"):
                 return user_answer, flags
         else:
             return user_answer, []
@@ -254,30 +276,63 @@ def render_multiple_choice_step(step):
     return None
 
 def render_llm_step(step, task_data, answers, profile, student_context, unit_config=None):
+    """
+    КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: проверяем наличие поля 'output'.
+    Если output есть — парсим JSON. Если нет — возвращаем текст как есть.
+    """
     prompt_template = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
+    
+    # Формируем контекст
     context = {
         "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
         "profile_block": format_profile_for_prompt(profile),
-        "answers": json.dumps(answers, ensure_ascii=False),
     }
+    
     if unit_config:
         context["unit_config"] = json.dumps(unit_config, ensure_ascii=False)
-    for key, value in answers.items():
-        context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    
+    # Разворачиваем answers (answers.q1 -> q1)
+    flat_answers = flatten_answers(answers)
+    context.update(flat_answers)
+    context["answers"] = json.dumps(answers, ensure_ascii=False)
+    context["answers_numbered"] = "\n".join([f"{i+1}. {v}" for i, v in enumerate(flat_answers.values())])
+    
+    # Разворачиваем student_context
     for key, value in student_context.items():
         if key not in context:
             context[key] = str(value)
     
+    # Разворачиваем предыдущие LLM результаты (final_grade.reading_score -> final_grade_reading_score)
+    llm_results = st.session_state.get("llm_results", {})
+    flat_llm = flatten_llm_results(llm_results)
+    context.update(flat_llm)
+    
     prompt = format_prompt_with_context(prompt_template, context)
-    with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
+    
+    with st.spinner(" AI is analyzing your answer (this may take 10-20 seconds)..."):
         try:
             response, tokens = call_llm_with_retry(prompt, max_retries=2, temperature=step.get("temperature", 0.2))
-            try:
-                result = extract_json_with_retry(response, prompt_for_retry=prompt, max_retries=1)
-                return result, tokens
-            except:
-                return {"raw_response": response}, tokens
+            
+            # Проверяем, ожидается ли JSON output
+            output_schema = step.get("output")
+            if output_schema and output_schema in task_data.get("schemas", {}):
+                # Ожидаем JSON — пытаемся распарсить
+                try:
+                    result = extract_json_with_retry(response, prompt_for_retry=prompt, max_retries=1)
+                    st.success("✅ JSON parsed successfully")
+                    return result, tokens
+                except Exception as json_err:
+                    st.error(f"⚠️ JSON parse error: {json_err}")
+                    with st.expander("Raw response (click to see)"):
+                        st.code(response[:1000])
+                    return {"parse_error": str(json_err), "raw_response": response}, tokens
+            else:
+                # Ожидаем Markdown/текст (например, report) — возвращаем как есть
+                st.success("✅ Text response received")
+                return {"feedback_text": response}, tokens
+                
         except Exception as e:
+            st.error(f"❌ LLM call failed: {e}")
             return {"error": str(e)}, {"total_tokens": 0}
 
 def render_message_step(step):
@@ -327,7 +382,7 @@ if st.session_state.get("mode") == "student" and "student_name" not in st.sessio
 
 elif st.session_state.get("mode") == "student" and "student_name" in st.session_state:
     with st.sidebar:
-        st.success(f"👤 {st.session_state.student_name}")
+        st.success(f" {st.session_state.student_name}")
         profile = st.session_state.get("student_profile", {})
         if profile:
             level = profile.get("estimated_level", "—")
@@ -340,17 +395,17 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
     TASKS_DIR = "tasks"
     UNITS_DIR = os.path.join(TASKS_DIR, "units")
     TEMPLATE_FILE = os.path.join(TASKS_DIR, "template.yaml")
-    
+
     try:
         unit_files = sorted([f for f in os.listdir(UNITS_DIR) if f.endswith('.json')])
     except FileNotFoundError:
         st.error(f"Units directory not found: {UNITS_DIR}")
         st.stop()
-    
+
     if not unit_files:
         st.error("No available units!")
         st.stop()
-    
+
     if "selected_unit" not in st.session_state:
         st.title("Choose your unit:")
         selected_unit = st.selectbox("Available units:", unit_files, format_func=lambda x: x.replace('.json', '').replace('_', ' ').title())
@@ -359,7 +414,6 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
             st.rerun()
     else:
         UNIT_FILE_PATH = os.path.join(UNITS_DIR, st.session_state.selected_unit)
-        
         try:
             task_data, unit_config = load_template_and_unit(TEMPLATE_FILE, UNIT_FILE_PATH)
             steps = task_data.get("steps", [])
@@ -370,30 +424,29 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
         except FileNotFoundError:
             st.error(f"Template or unit file not found!")
             st.stop()
-        
+
         task_id = task_data.get("meta", {}).get("id", "unknown")
-        
         if not check_attempts(st.session_state.student_name, task_id, max_attempts):
             st.error(f"You have already completed this unit (limit: {max_attempts} attempt).")
             if st.button("Choose another unit"):
                 del st.session_state.selected_unit
                 st.rerun()
             st.stop()
-        
+
         st.title(f"Unit: {task_data.get('meta', {}).get('title', 'Comprehensive Tech English')}")
         st.markdown("---")
-        
+
         step_idx = st.session_state.get("current_step_idx", 0)
-        
+
         if step_idx < len(steps):
             current_step = steps[step_idx]
             step_type = current_step.get("type", "question")
-            
+
             if step_type == "gate":
                 if render_gate_step(current_step):
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
-            
+
             elif step_type == "question":
                 answer, flags = render_question_step(current_step, min_words=min_words)
                 if answer is not None:
@@ -424,21 +477,21 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     except Exception as e:
                         st.error(f"Database error: {e}")
                     st.rerun()
-            
+
             elif step_type == "multiple_choice":
                 result = render_multiple_choice_step(current_step)
                 if result is not None:
                     st.session_state.answers[current_step["id"]] = result
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
-            
+
             elif step_type == "llm":
                 student_context = task_data.get("student_context", {})
                 result, tokens = render_llm_step(
-                    current_step, 
-                    task_data, 
-                    st.session_state.answers, 
-                    st.session_state.get("student_profile", {}), 
+                    current_step,
+                    task_data,
+                    st.session_state.answers,
+                    st.session_state.get("student_profile", {}),
                     student_context,
                     unit_config
                 )
@@ -448,86 +501,105 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 st.session_state.token_usage["total_tokens"] += tokens.get("total_tokens", 0)
                 st.session_state.current_step_idx = step_idx + 1
                 st.rerun()
-            
+
             elif step_type == "message":
                 clicked = render_message_step(current_step)
                 if clicked:
                     st.session_state.answers[current_step["id"]] = clicked
                     st.session_state.current_step_idx = step_idx + 1
                     st.rerun()
-            
+
             elif step_type == "action":
-                st.success("Unit completed! Generating feedback...")
+                st.success("✅ Unit completed! Generating feedback...")
                 st.session_state.current_step_idx = step_idx + 1
                 st.rerun()
-        
+
         else:
             st.subheader("Excellent! All steps completed.")
+            
             if "final_report" not in st.session_state:
                 st.markdown("Generating personalized feedback... ⏳")
-                report_prompt_template = task_data.get("prompts", {}).get("report", "")
-                student_context = task_data.get("student_context", {})
-                context = {
-                    "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
-                    "profile_block": format_profile_for_prompt(st.session_state.get("student_profile", {})),
-                    "answers": json.dumps(st.session_state.answers, ensure_ascii=False),
-                }
-                for key, value in st.session_state.answers.items():
-                    context[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-                for key, value in st.session_state.llm_results.items():
-                    if isinstance(value, dict):
-                        context[key] = json.dumps(value, ensure_ascii=False)
-                        for k, v in value.items():
-                            if k not in context:
-                                context[k] = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
-                    else:
-                        context[key] = str(value)
-                for key, value in student_context.items():
-                    if key not in context:
-                        context[key] = str(value)
-                report_prompt = format_prompt_with_context(report_prompt_template, context)
-                try:
-                    feedback_text, tokens = call_llm_with_retry(report_prompt, max_retries=1, temperature=0.3)
-                    st.session_state.token_usage["prompt_tokens"] += tokens["prompt_tokens"]
-                    st.session_state.token_usage["completion_tokens"] += tokens["completion_tokens"]
-                    st.session_state.token_usage["total_tokens"] += tokens["total_tokens"]
-                    report_hash = compute_sha256(feedback_text)
-                    teacher_meta = f"\n---\n### Teacher Meta (hidden from student)\n- **Flags:** {', '.join(st.session_state.flags) if st.session_state.flags else 'none'}\n- **Token usage:** {st.session_state.token_usage['total_tokens']}\n- **Report hash:** {report_hash}\n- **Completed at:** {datetime.now().isoformat()}\n"
-                    st.session_state.final_report = feedback_text + teacher_meta
-                    st.session_state.report_hash = report_hash
-                except Exception as e:
-                    st.session_state.final_report = f"Feedback generation error: {e}"
-                    st.session_state.report_hash = None
+                
+                # Берем уже сгенерированный report из llm_results
+                report_data = st.session_state.llm_results.get("report", {})
+                
+                if "feedback_text" in report_data:
+                    feedback_text = report_data["feedback_text"]
+                elif "raw_response" in report_data:
+                    feedback_text = report_data["raw_response"]
+                elif "text_response" in report_data:
+                    feedback_text = report_data["text_response"]
+                else:
+                    feedback_text = str(report_data)
+                
+                report_hash = compute_sha256(feedback_text)
+                teacher_meta = f"\n---\n### Teacher Meta (hidden from student)\n- **Flags:** {', '.join(st.session_state.flags) if st.session_state.flags else 'none'}\n- **Token usage:** {st.session_state.token_usage.get('total_tokens', 'N/A')}\n- **Report hash:** {report_hash}\n- **Completed at:** {datetime.now().isoformat()}\n"
+                
+                st.session_state.final_report = feedback_text + teacher_meta
+                st.session_state.report_hash = report_hash
                 st.rerun()
             else:
-                st.success("Feedback is ready!")
-                report_body = st.session_state.final_report.split("---")[0]
+                st.success("✅ Feedback is ready!")
+                
+                # Разделяем student и teacher части
+                report_parts = st.session_state.final_report.split("---\n### Teacher Meta")
+                report_body = report_parts[0]
+                teacher_meta = report_parts[1] if len(report_parts) > 1 else ""
+                
+                # Показываем студенту
+                st.markdown("### 📋 Your Personalized Feedback")
                 st.markdown(report_body)
-                st.download_button("📥 Download feedback (Markdown)", report_body, file_name=f"feedback_{st.session_state.student_name.replace(' ', '_')}.md", mime="text/markdown")
+                
+                # Кнопка скачивания
+                st.download_button(
+                    label="📥 Download Feedback (Markdown)",
+                    data=report_body,
+                    file_name=f"feedback_{st.session_state.student_name.replace(' ', '_')}.md",
+                    mime="text/markdown"
+                )
+                
+                # Показываем teacher meta в expander
+                if teacher_meta:
+                    with st.expander("👩‍🏫 Teacher Meta (hidden from student)"):
+                        st.markdown(teacher_meta)
+                
+                # Сохраняем в БД
                 try:
                     conn = get_db_connection()
                     cursor = conn.cursor()
                     cursor.execute("""
-                        UPDATE sessions SET status = 'completed', grade_json = ?, report_hash = ?, token_usage = ?, answers = ?, completed_at = ? WHERE id = ?
+                        UPDATE sessions SET 
+                            status = 'completed', 
+                            grade_json = ?, 
+                            report_hash = ?, 
+                            token_usage = ?, 
+                            answers = ?, 
+                            completed_at = ? 
+                        WHERE id = ?
                     """, (
                         json.dumps(st.session_state.llm_results, ensure_ascii=False),
                         st.session_state.report_hash,
-                        st.session_state.token_usage["total_tokens"],
+                        st.session_state.token_usage.get("total_tokens", 0),
                         json.dumps(st.session_state.answers, ensure_ascii=False),
                         datetime.now().isoformat(),
                         st.session_state.session_id
                     ))
                     conn.commit()
-                    conn.close()
+                    
+                    # Обновляем профиль студента
                     profile_notes = None
                     for result in st.session_state.llm_results.values():
                         if isinstance(result, dict) and "profile_notes" in result:
                             profile_notes = result["profile_notes"]
                             break
+                    
                     if profile_notes:
                         save_student_profile(st.session_state.student_id, profile_notes)
                         st.session_state.student_profile.update(profile_notes)
-                    st.success("✅ Results saved! Profile updated.")
+                    
+                    conn.close()
+                    st.success("✅ Results saved to database! Profile updated.")
+                    
                 except Exception as e:
                     st.error(f"Database update error: {e}")
 
@@ -546,41 +618,37 @@ elif st.session_state.get("mode") == "admin":
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
+
         try:
             conn = get_db_connection()
             df = pd.read_sql_query("SELECT * FROM sessions ORDER BY full_name, created_at", conn)
             conn.close()
+
             if df.empty:
                 st.info("ℹ️ No student data yet.")
             else:
                 if 'grade_json' in df.columns:
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
-                    df['reading_score'] = df['grade_json'].apply(lambda x: x.get('reading_score') if isinstance(x, dict) else None)
-                    df['essay_task_achievement'] = df['grade_json'].apply(lambda x: x.get('essay_task_achievement') if isinstance(x, dict) else None)
-                    df['essay_language'] = df['grade_json'].apply(lambda x: x.get('essay_language') if isinstance(x, dict) else None)
                     df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
-                st.subheader(" Summary Table (Pivot)")
+
+                st.subheader("Summary Table")
                 if 'total' in df.columns and df['total'].notna().any():
-                    pivot_values = 'total'
-                else:
-                    pivot_values = 'reading_score'
-                pivot = df.pivot_table(index=['full_name'], columns='task_id', values=pivot_values, aggfunc='first')
-                st.dataframe(pivot.fillna("—"), use_container_width=True)
+                    pivot = df.pivot_table(index=['full_name'], columns='task_id', values='total', aggfunc='first')
+                    st.dataframe(pivot.fillna("—"), use_container_width=True)
+
                 st.markdown("---")
-                st.subheader(" Detailed Session View")
+                st.subheader("Detailed Session View")
                 for idx, row in df.iterrows():
                     with st.expander(f"{row.get('full_name')} - {row.get('task_id')} - {row.get('status')}"):
                         col1, col2 = st.columns(2)
                         with col1:
-                            if pd.notna(row.get('reading_score')): st.metric("Reading", f"{row['reading_score']}/15")
-                            if pd.notna(row.get('essay_task_achievement')): st.metric("Essay Task", f"{row['essay_task_achievement']}/15")
-                            if pd.notna(row.get('essay_language')): st.metric("Essay Language", f"{row['essay_language']}/10")
-                            if pd.notna(row.get('total')): st.metric("Total", f"{row['total']}/50")
+                            if pd.notna(row.get('total')):
+                                st.metric("Total", f"{row['total']}")
                         with col2:
-                            st.write(f"**Status:** {row.get('status')}")
-                            st.write(f"**Tokens:** {row.get('token_usage')}")
-                            st.write(f"**Hash:** `{row.get('report_hash')[:16]}...`" if pd.notna(row.get('report_hash')) else "No hash")
-                        st.markdown("**Raw answers:**")
+                            st.write(f"Status: {row.get('status')}")
+                            st.write(f"Tokens: {row.get('token_usage')}")
+                            st.write(f"Hash: `{row.get('report_hash')[:16]}...`" if pd.notna(row.get('report_hash')) else "No hash")
+                        st.markdown("Raw answers:")
                         try:
                             answers = json.loads(row['answers']) if pd.notna(row['answers']) and isinstance(row['answers'], str) else row['answers']
                             if isinstance(answers, dict):
@@ -588,11 +656,13 @@ elif st.session_state.get("mode") == "admin":
                                     st.markdown(f"**{q_id}:** {answer}")
                         except:
                             st.write("Failed to load")
+
                 st.markdown("---")
                 st.subheader("📥 Export to CSV")
                 export_df = df.drop(columns=['answers', 'grade_json'], errors='ignore')
                 st.dataframe(export_df, use_container_width=True)
                 csv = export_df.to_csv(index=False).encode('utf-8')
                 st.download_button("Download CSV", csv, "student_results.csv", "text/csv")
+
         except Exception as e:
             st.error(f"Error: {e}")
