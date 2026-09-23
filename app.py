@@ -11,7 +11,7 @@ from datetime import datetime
 from openai import OpenAI
 import time
 
-st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="AI English Tutor", page_icon="", layout="wide")
 
 YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
 YANDEX_FOLDER_ID = os.environ.get("YANDEX_FOLDER_ID")
@@ -21,6 +21,7 @@ if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
     st.error("Missing environment variables: YANDEX_API_KEY, YANDEX_FOLDER_ID")
     st.stop()
 
+# ИСПРАВЛЕНО: для API-ключа используем прямой эндпоинт OpenAI-совместимый
 client = OpenAI(
     api_key=YANDEX_API_KEY,
     base_url="https://llm.api.cloud.yandex.net/foundationModels/v1"
@@ -80,12 +81,13 @@ def count_tokens_in_response(response):
         pass
     return {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
-def call_llm_with_retry(prompt, max_retries=2, temperature=0.2):
+# ИСПРАВЛЕНО: убран префикс gpt://{folder_id}/ — для API-ключа нужна только модель
+def call_llm_with_retry(prompt, max_retries=2, temperature=0.2, model_name="yandexgpt-lite"):
     last_error = None
     for attempt in range(max_retries + 1):
         try:
             response = client.chat.completions.create(
-                model=f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
+                model=model_name,
                 messages=[{"role": "user", "text": prompt}],
                 temperature=temperature
             )
@@ -286,6 +288,9 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
     """
     prompt_template = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
     
+    # Определяем модель из шага или используем дефолтную
+    model_name = step.get("model", "yandexgpt-lite")
+    
     # Формируем контекст
     context = {
         "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
@@ -315,7 +320,12 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
     
     with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
         try:
-            response, tokens = call_llm_with_retry(prompt, max_retries=2, temperature=step.get("temperature", 0.2))
+            response, tokens = call_llm_with_retry(
+                prompt, 
+                max_retries=2, 
+                temperature=step.get("temperature", 0.2),
+                model_name=model_name
+            )
             
             # Проверяем, ожидается ли JSON output
             output_schema = step.get("output")
@@ -350,15 +360,15 @@ def render_message_step(step):
 # ==================== MAIN APP ====================
 
 if "student_name" not in st.session_state and "admin_auth" not in st.session_state:
-    st.title("🎓 Welcome to AI Tutor Platform")
+    st.title(" Welcome to AI Tutor Platform")
     st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button(" I'm a student", use_container_width=True):
+        if st.button("👤 I'm a student", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("👩‍ I'm a teacher", use_container_width=True):
+        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -565,7 +575,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                 
                 # Показываем teacher meta в expander
                 if teacher_meta:
-                    with st.expander("👩‍🏫 Teacher Meta (hidden from student)"):
+                    with st.expander("👩🏫 Teacher Meta (hidden from student)"):
                         st.markdown(teacher_meta)
                 
                 # Сохраняем в БД
@@ -619,7 +629,7 @@ elif st.session_state.get("mode") == "admin":
             else:
                 st.error("Invalid password")
     else:
-        st.title("👩‍🏫 Teacher Dashboard")
+        st.title("‍🏫 Teacher Dashboard")
         if st.button("Logout from admin"):
             del st.session_state.admin_auth
             st.rerun()
