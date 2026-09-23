@@ -5,11 +5,11 @@ meta:
   llm_calls: 3
   est_tokens: "15-20k"
   est_cost_rub: "12-18"
-student_context:
-  age: 18
-  major: mathematics
-  level: "B1 (target: B2)"
-  topic: "{{UNIT_TOPIC}}"
+  student_context:
+    age: 18
+    major: mathematics
+    level: "B1 (target: B2)"
+    topic: "{{UNIT_TOPIC}}"
 settings:
   answers:
     language: en
@@ -22,9 +22,11 @@ steps:
     type: gate
     say: |
       Hi! This is a 50-point task based on the article "Distributed Representations of Words and Phrases" (Mikolov et al., 2013).
-      Part 1: Grammar - Passive Voice (10 MCQs, 10 pts)
-      Part 2: Reading Comprehension - Scanning (5 questions, 15 pts)
-      Part 3: Opinion Essay (150-200 words, 25 pts)
+      
+      **Part 1:** Grammar - Passive Voice (10 MCQs, 10 pts)
+      **Part 2:** Reading Comprehension - Scanning (5 questions, 15 pts)
+      **Part 3:** Opinion Essay (150-200 words, 25 pts)
+      
       Press Start when you're ready.
     buttons: ["Start"]
     next: g1
@@ -214,7 +216,7 @@ steps:
     temperature: 0.3
     prompt: prompts.report
     inputs: ["student_context", "answers", "final_grade"]
-    output: schemas.report
+    # ВАЖНО: нет поля output — значит код вернет текст как есть, без парсинга JSON
     save_as: report
     next: deliver
 
@@ -258,7 +260,7 @@ prompts:
     3. ESSAY LANGUAGE (0-10): Grammar (especially Passive Voice), vocabulary range, coherence, academic style.
     
     Return STRICT JSON only:
-    {{
+    {
       "reading_score": 0,
       "essay_task_achievement": 0,
       "essay_language": 0,
@@ -266,17 +268,17 @@ prompts:
       "reading_feedback": "Brief comment on reading answers",
       "essay_strengths": ["...", "..."],
       "essay_improvements": ["...", "..."],
-      "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
+      "errors": [{"original": "...", "corrected": "...", "explanation": "..."}],
       "recommended_vocabulary": [
-        {{"word": "...", "definition": "...", "example": "..."}},
-        ... (6-8 items)
+        {"word": "...", "definition": "...", "example": "..."}
       ],
-      "profile_notes": {{
+      "profile_notes": {
         "estimated_level": "B1 | B1+ | B2",
         "vocabulary_gaps": ["..."],
         "grammar_gaps": ["..."]
-      }}
-    }}
+      }
+    }
+    
     Rules:
     - errors: 2-3 items from the essay, original — verbatim quote
     - recommended_vocabulary: 6-8 advanced B2-C1 words related to NLP, machine learning, or academic writing that the student should learn
@@ -319,6 +321,8 @@ prompts:
     4. A motivating conclusion
     
     Write simply and clearly, like a tutor talking to a student. No complex markdown structures, just clear text with basic formatting.
+    
+    Output ONLY the Markdown feedback text. Do NOT wrap in JSON.
 
 schemas:
   final_grade:
@@ -335,8 +339,6 @@ schemas:
       estimated_level: "str"
       vocabulary_gaps: "list"
       grammar_gaps: "list"
-  report:
-    feedback_text: "str"
 
 templates:
   final_md: |
