@@ -195,15 +195,20 @@ def check_attempts(full_name, task_id, max_attempts=1):
     return count < max_attempts
 
 def load_template_and_unit(template_file, unit_config_file):
+    """Загружает шаблон и конфиг юнита, подставляет переменные"""
     with open(template_file, "r", encoding="utf-8") as f:
         template = yaml.safe_load(f)
     with open(unit_config_file, "r", encoding="utf-8") as f:
         unit_config = json.load(f)
+    
+    # ИСПРАВЛЕНО: student_context находится внутри meta
     template['meta']['id'] = template['meta']['id'].replace('{{UNIT_NUMBER}}', unit_config['unit_number'])
     template['meta']['title'] = template['meta']['title'].replace('{{UNIT_TITLE}}', unit_config['title'])
-    template['student_context']['topic'] = template['student_context']['topic'].replace('{{UNIT_TOPIC}}', unit_config['topic'])
+    template['meta']['student_context']['topic'] = template['meta']['student_context']['topic'].replace('{{UNIT_TOPIC}}', unit_config['topic'])
+    
     if 'templates' in template and 'final_md' in template['templates']:
         template['templates']['final_md'] = template['templates']['final_md'].replace('{{UNIT_TITLE}}', unit_config['title'])
+    
     return template, unit_config
 
 def format_prompt_with_context(prompt_template, context_dict):
@@ -232,7 +237,6 @@ def flatten_llm_results(llm_results):
             flat[key] = json.dumps(value, ensure_ascii=False)
             for k, v in value.items():
                 flat[f"{key}_{k}"] = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
-                # Дополнительное разворачивание для вложенных списков/словарей
                 if isinstance(v, (list, dict)):
                     flat[f"{key}_{k}"] = json.dumps(v, ensure_ascii=False)
         else:
@@ -309,7 +313,7 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
     
     prompt = format_prompt_with_context(prompt_template, context)
     
-    with st.spinner(" AI is analyzing your answer (this may take 10-20 seconds)..."):
+    with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
         try:
             response, tokens = call_llm_with_retry(prompt, max_retries=2, temperature=step.get("temperature", 0.2))
             
@@ -350,11 +354,11 @@ if "student_name" not in st.session_state and "admin_auth" not in st.session_sta
     st.markdown("Choose your mode:")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("👤 I'm a student", use_container_width=True):
+        if st.button(" I'm a student", use_container_width=True):
             st.session_state.mode = "student"
             st.rerun()
     with col2:
-        if st.button("👩‍🏫 I'm a teacher", use_container_width=True):
+        if st.button("👩‍ I'm a teacher", use_container_width=True):
             st.session_state.mode = "admin"
             st.rerun()
 
@@ -382,7 +386,7 @@ if st.session_state.get("mode") == "student" and "student_name" not in st.sessio
 
 elif st.session_state.get("mode") == "student" and "student_name" in st.session_state:
     with st.sidebar:
-        st.success(f" {st.session_state.student_name}")
+        st.success(f"👤 {st.session_state.student_name}")
         profile = st.session_state.get("student_profile", {})
         if profile:
             level = profile.get("estimated_level", "—")
@@ -486,7 +490,8 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     st.rerun()
 
             elif step_type == "llm":
-                student_context = task_data.get("student_context", {})
+                # ИСПРАВЛЕНО: student_context находится внутри meta
+                student_context = task_data.get("meta", {}).get("student_context", {})
                 result, tokens = render_llm_step(
                     current_step,
                     task_data,
