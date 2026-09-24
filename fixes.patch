@@ -1,0 +1,356 @@
+diff --git a/app.py b/app.py
+index d3b9481..8b37418 100644
+--- a/app.py
++++ b/app.py
+@@ -15,22 +15,29 @@ st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide
+ 
+ YANDEX_API_KEY = os.environ.get("YANDEX_API_KEY")
+ YANDEX_FOLDER_ID = os.environ.get("YANDEX_FOLDER_ID")
+-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
++ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+ 
+ if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
+     st.error("Missing environment variables: YANDEX_API_KEY, YANDEX_FOLDER_ID")
+     st.stop()
+ 
++if not ADMIN_PASSWORD:
++    st.error("Missing environment variable: ADMIN_PASSWORD (пароль преподавателя больше не имеет значения по умолчанию)")
++    st.stop()
++
+ client = OpenAI(
+     api_key=YANDEX_API_KEY,
+     project=YANDEX_FOLDER_ID,
+     base_url="https://ai.api.cloud.yandex.net/v1"
+ )
+ 
+-DB_NAME = "tutor.db"
++# ВАЖНО: путь должен совпадать с volume из docker-compose (/app/data),
++# иначе база лежит в слое контейнера и стирается при каждом редеплое.
++DB_PATH = os.environ.get("DB_PATH", "data/tutor.db")
++os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+ 
+ def get_db_connection():
+-    conn = sqlite3.connect(DB_NAME)
++    conn = sqlite3.connect(DB_PATH)
+     conn.row_factory = sqlite3.Row
+     return conn
+ 
+@@ -60,6 +67,15 @@ def init_db():
+             created_at TEXT DEFAULT CURRENT_TIMESTAMP
+         )
+     ''')
++    # Миграции для уже существующих баз
++    cursor.execute("PRAGMA table_info(sessions)")
++    existing = {row[1] for row in cursor.fetchall()}
++    if "total" not in existing:
++        cursor.execute("ALTER TABLE sessions ADD COLUMN total INTEGER")
++    if "max_score" not in existing:
++        cursor.execute("ALTER TABLE sessions ADD COLUMN max_score INTEGER")
++    if "report_md" not in existing:
++        cursor.execute("ALTER TABLE sessions ADD COLUMN report_md TEXT")
+     conn.commit()
+     conn.close()
+ 
+@@ -115,6 +131,18 @@ def extract_json_with_retry(text, prompt_for_retry=None, max_retries=1):
+                 raise ValueError(f"JSON parse error: {e}")
+     return None
+ 
++def extract_total(grade_json):
++    """Достаёт итоговый балл из llm_results любого вида (плоского или по шагам)."""
++    if not isinstance(grade_json, dict):
++        return None
++    if isinstance(grade_json.get("total"), (int, float)):
++        return grade_json["total"]
++    for value in grade_json.values():
++        if isinstance(value, dict) and isinstance(value.get("total"), (int, float)):
++            return value["total"]
++    return None
++
++
+ def compute_sha256(content):
+     if isinstance(content, str):
+         content = content.encode('utf-8')
+@@ -135,6 +163,53 @@ def validate_answer(answer, min_words=15, russian_threshold=0.3):
+         flags.append("fast_answer")
+     return flags, warnings
+ 
++def score_multiple_choice(answers, steps, points_per_item=1):
++    """Считает тестовую часть кодом. Модель к этим баллам не прикасается."""
++    mc_steps = [s for s in steps if s.get("type") == "multiple_choice"]
++    correct, wrong_topics = 0, []
++    for s in mc_steps:
++        saved = answers.get(s["id"])
++        if isinstance(saved, dict) and saved.get("is_correct"):
++            correct += 1
++        elif saved is not None:
++            wrong_topics.append(s.get("topic", s["id"]))
++    return {
++        "correct": correct,
++        "items": len(mc_steps),
++        "score": correct * points_per_item,
++        "max": len(mc_steps) * points_per_item,
++        "wrong_topics": wrong_topics,
++    }
++
++
++def compute_total(grade, mc, task_data):
++    """Итог = баллы теста (код) + оценочные поля модели, с обрезкой по максимуму.
++
++    Возвращает (total, flags). Сумму складывает код: у модели арифметика плавает.
++    """
++    scoring = task_data.get("settings", {}).get("scoring", {})
++    fields = scoring.get("llm_score_fields", []) or []
++    caps = scoring.get("max_by_field", {}) or {}
++    flags, total = [], mc.get("score", 0)
++    for f in fields:
++        try:
++            value = int(grade.get(f, 0) or 0)
++        except (TypeError, ValueError):
++            value = 0
++            flags.append(f"llm_score_not_a_number:{f}")
++        cap = caps.get(f)
++        if cap is not None and value > cap:
++            flags.append(f"llm_score_over_max:{f}={value}>{cap}")
++            value = cap
++        if value < 0:
++            value = 0
++        total += value
++    llm_total = grade.get("total")
++    if isinstance(llm_total, int) and llm_total != total:
++        flags.append(f"llm_total_mismatch:{llm_total}!={total}")
++    return total, flags
++
++
+ def get_or_create_student(full_name):
+     conn = get_db_connection()
+     cursor = conn.cursor()
+@@ -218,11 +293,17 @@ def format_prompt_with_context(prompt_template, context_dict):
+         return prompt_template
+ 
+ def flatten_answers(answers):
++    """Плоский словарь для подстановки в промпты.
++
++    Ключи вложенных словарей префиксуются id шага: раньше selected/correct/is_correct
++    от g1..g10 перезаписывали друг друга, и в промпт уходил только последний вопрос.
++    """
+     flat = {}
+     for key, value in answers.items():
+         if isinstance(value, dict):
++            flat[key] = json.dumps(value, ensure_ascii=False)
+             for k, v in value.items():
+-                flat[k] = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
++                flat[f"{key}_{k}"] = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+         else:
+             flat[key] = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+     return flat
+@@ -251,15 +332,28 @@ def render_question_step(step, min_words=15):
+     st.markdown(f"**{step.get('topic', '')}**")
+     st.write(step.get("say"))
+     user_answer = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
+-    if st.button("Submit answer", type="primary"):
++
++    # Вложенная кнопка внутри if st.button(...) в Streamlit не срабатывает никогда:
++    # при перерисовке внешняя кнопка снова False и внутренняя исчезает.
++    # Поэтому состояние "показали предупреждение" держим в session_state.
++    pending_key = f"pending_{step['id']}"
++    forced_key = f"forced_{step['id']}"
++
++    if st.button("Submit answer", type="primary", key=f"submit_{step['id']}"):
++        st.session_state[pending_key] = True
++
++    if st.session_state.get(pending_key):
+         flags, warnings = validate_answer(user_answer, min_words=min_words)
+-        if warnings:
++        if warnings and not st.session_state.get(forced_key):
+             for w in warnings:
+                 st.warning(w)
+             if st.button("Submit anyway", key=f"force_send_{step['id']}"):
+-                return user_answer, flags
+-        else:
+-            return user_answer, []
++                st.session_state[forced_key] = True
++                st.rerun()
++            return None, []
++        st.session_state.pop(pending_key, None)
++        st.session_state.pop(forced_key, None)
++        return user_answer, flags
+     return None, []
+ 
+ def render_multiple_choice_step(step):
+@@ -276,7 +370,7 @@ def render_multiple_choice_step(step):
+         }
+     return None
+ 
+-def render_llm_step(step, task_data, answers, profile, student_context, unit_config=None):
++def render_llm_step(step, task_data, answers, profile, student_context, unit_config=None, mc=None):
+     prompt_template = task_data.get("prompts", {}).get(step.get("prompt", ""), "")
+     model_name = step.get("model", "yandexgpt-5-lite")
+ 
+@@ -291,7 +385,15 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
+     flat_answers = flatten_answers(answers)
+     context.update(flat_answers)
+     context["answers"] = json.dumps(answers, ensure_ascii=False)
+-    context["answers_numbered"] = "\n".join([f"{i+1}. {v}" for i, v in enumerate(flat_answers.values())])
++    text_answers = [v for k, v in answers.items() if isinstance(v, str)]
++    context["answers_numbered"] = "\n".join([f"{i+1}. {v}" for i, v in enumerate(text_answers)])
++
++    mc = mc or {"score": 0, "max": 0, "correct": 0, "items": 0, "wrong_topics": []}
++    context["mc_score"] = mc["score"]
++    context["mc_max"] = mc["max"]
++    context["mc_correct"] = mc["correct"]
++    context["mc_items"] = mc["items"]
++    context["mc_wrong_topics"] = ", ".join(mc["wrong_topics"]) if mc["wrong_topics"] else "none"
+ 
+     for key, value in student_context.items():
+         if key not in context:
+@@ -401,7 +503,12 @@ elif st.session_state.get("mode") == "admin":
+             else:
+                 if 'grade_json' in df.columns:
+                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
+-                    df['total'] = df['grade_json'].apply(lambda x: x.get('total') if isinstance(x, dict) else None)
++                    # grade_json = {"final_grade": {...}, "report": {...}} — total лежит на уровень глубже,
++                    # поэтому старое x.get('total') всегда возвращало None и таблица была пустой.
++                    df['total'] = df.apply(
++                        lambda row: row['total'] if pd.notna(row.get('total')) else extract_total(row['grade_json']),
++                        axis=1
++                    )
+ 
+                 st.subheader("Summary Table")
+                 if 'total' in df.columns and df['total'].notna().any():
+@@ -420,6 +527,9 @@ elif st.session_state.get("mode") == "admin":
+                             st.write(f"Status: {row.get('status')}")
+                             st.write(f"Tokens: {row.get('token_usage')}")
+                             st.write(f"Hash: `{row.get('report_hash')[:16]}...`" if pd.notna(row.get('report_hash')) else "No hash")
++                        if pd.notna(row.get('report_md')):
++                            with st.expander("📄 Отчёт студента (как он его получил)"):
++                                st.markdown(row['report_md'])
+                         st.markdown("Raw answers:")
+                         try:
+                             answers = json.loads(row['answers']) if pd.notna(row['answers']) and isinstance(row['answers'], str) else row['answers']
+@@ -546,14 +656,29 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
+ 
+             elif step_type == "llm":
+                 student_context = task_data.get("meta", {}).get("student_context", {})
++                mc = score_multiple_choice(
++                    st.session_state.answers,
++                    steps,
++                    task_data.get("settings", {}).get("scoring", {}).get("mc_points_per_item", 1),
++                )
++                st.session_state.mc = mc
+                 result, tokens = render_llm_step(
+                     current_step,
+                     task_data,
+                     st.session_state.answers,
+                     st.session_state.get("student_profile", {}),
+                     student_context,
+-                    unit_config
++                    unit_config,
++                    mc,
+                 )
++                if isinstance(result, dict) and any(
++                    f in result for f in task_data.get("settings", {}).get("scoring", {}).get("llm_score_fields", [])
++                ):
++                    total, score_flags = compute_total(result, mc, task_data)
++                    result["mc_score"] = mc["score"]
++                    result["total_llm"] = result.get("total")
++                    result["total"] = total
++                    st.session_state.flags.extend(score_flags)
+                 st.session_state.llm_results[current_step["id"]] = result
+                 st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
+                 st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
+@@ -603,6 +728,9 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
+                 report_body = report_parts[0]
+                 teacher_meta = report_parts[1] if len(report_parts) > 1 else ""
+ 
++                total_now = extract_total(st.session_state.llm_results)
++                if total_now is not None:
++                    st.metric("Your score", f"{total_now} / {max_score}")
+                 st.markdown("### 📋 Your Personalized Feedback")
+                 st.markdown(report_body)
+ 
+@@ -627,6 +755,10 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
+                             report_hash = ?,
+                             token_usage = ?,
+                             answers = ?,
++                            total = ?,
++                            max_score = ?,
++                            report_md = ?,
++                            flags = ?,
+                             completed_at = ?
+                         WHERE id = ?
+                     """, (
+@@ -634,6 +766,10 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
+                         st.session_state.report_hash,
+                         st.session_state.token_usage.get("total_tokens", 0),
+                         json.dumps(st.session_state.answers, ensure_ascii=False),
++                        extract_total(st.session_state.llm_results),
++                        max_score,
++                        report_body,
++                        json.dumps(st.session_state.flags, ensure_ascii=False),
+                         datetime.now().isoformat(),
+                         st.session_state.session_id
+                     ))
+diff --git a/tasks/template.yaml b/tasks/template.yaml
+index 33bae53..0f71d89 100644
+--- a/tasks/template.yaml
++++ b/tasks/template.yaml
+@@ -18,6 +18,15 @@ settings:
+     russian_detect: "cyrillic > 30%"
+   attempts:
+     max: 1
++  # Как считается итог. Тестовую часть считает код, оценочную — модель,
++  # сумму снова код. max_by_field обрезает завышенные баллы модели.
++  scoring:
++    mc_points_per_item: 1
++    llm_score_fields: [reading_score, essay_task_achievement, essay_language]
++    max_by_field:
++      reading_score: 15
++      essay_task_achievement: 15
++      essay_language: 10
+ 
+ steps:
+   - id: start
+@@ -236,6 +245,9 @@ prompts:
+     You are an expert English tutor. Evaluate the student's reading comprehension answers and opinion essay.
+ 
+     Student: 18 y.o., math major, B1 targeting B2.
++
++    GRAMMAR TEST (already scored automatically, do NOT re-score it): {mc_score}/{mc_max}.
++    Topics answered incorrectly: {mc_wrong_topics}
+     Article: "Distributed Representations of Words and Phrases and their Compositionality" (Mikolov et al., 2013)
+ 
+     READING ANSWERS (5 questions):
+@@ -265,7 +277,6 @@ prompts:
+       "reading_score": 0,
+       "essay_task_achievement": 0,
+       "essay_language": 0,
+-      "total": 0,
+       "reading_feedback": "Brief comment on reading answers",
+       "essay_strengths": ["...", "..."],
+       "essay_improvements": ["...", "..."],
+@@ -281,6 +292,7 @@ prompts:
+     }}
+ 
+     Rules:
++    - Do NOT output a total score — the system sums it up itself
+     - errors: 2-3 items from the essay, original — verbatim quote
+     - recommended_vocabulary: 6-8 advanced B2-C1 words related to NLP, machine learning, or academic writing that the student should learn
+     - All feedback in ENGLISH
+@@ -290,7 +302,8 @@ prompts:
+ 
+     STUDENT: 18 years old, math major, B1-B2 level.
+ 
+-    GRAMMAR TEST: 10/10 (all correct!)
++    GRAMMAR TEST: {mc_score}/{mc_max}
++    Topics answered incorrectly: {mc_wrong_topics}
+ 
+     READING COMPREHENSION:
+     Student's answers:
+@@ -330,7 +343,6 @@ schemas:
+     reading_score: "int 0..15"
+     essay_task_achievement: "int 0..15"
+     essay_language: "int 0..10"
+-    total: "int 0..50"
+     reading_feedback: "str"
+     essay_strengths: "list"
+     essay_improvements: "list"
