@@ -18,6 +18,16 @@ settings:
     russian_detect: "cyrillic > 30%"
   attempts:
     max: 1
+  # Как считается итог. Тестовую часть считает код, оценочную — модель,
+  # сумму снова код. max_by_field обрезает завышенные баллы модели.
+  scoring:
+    mc_points_per_item: 1
+    # Чтение теперь тоже считает код по answer_key у шагов r1..r5.
+    # Модели остаётся только эссе.
+    llm_score_fields: [essay_task_achievement, essay_language]
+    max_by_field:
+      essay_task_achievement: 15
+      essay_language: 10
 
 steps:
   - id: start
@@ -155,6 +165,11 @@ steps:
 
   - id: r1
     type: question
+    answer_key:
+      expected: "1986"
+      points: 3
+      accept:
+        - "1986"
     topic: "Reading Q1"
     say: |
       Based on the article "Distributed Representations of Words and Phrases" (Mikolov et al., 2013):
@@ -165,6 +180,14 @@ steps:
 
   - id: r2
     type: question
+    answer_key:
+      expected: "More than 100 billion words"
+      points: 3
+      accept:
+        - "100 billion"
+        - "100000000000"
+        - "100 bln"
+        - "100 млрд"
     topic: "Reading Q2"
     say: |
       According to the article, approximately how many words can an optimized single-machine implementation train in one day?
@@ -172,6 +195,14 @@ steps:
 
   - id: r3
     type: question
+    answer_key:
+      expected: "P(wi) = 1 - sqrt(t / f(wi))"
+      points: 3
+      accept:
+        - "1 - sqrt(t"
+        - "1-sqrt(t"
+        - "sqrt(t/f"
+        - "sqrt(t / f"
     topic: "Reading Q3"
     say: |
       What is the mathematical formula used to calculate the probability of discarding a word during subsampling?
@@ -179,6 +210,15 @@ steps:
 
   - id: r4
     type: question
+    answer_key:
+      expected: "Around 10^-5"
+      points: 3
+      accept:
+        - "10^-5"
+        - "10-5"
+        - "1e-5"
+        - "0.00001"
+        - "10 в минус 5"
     topic: "Reading Q4"
     say: |
       What is the typical value of the chosen threshold t in the subsampling formula?
@@ -186,6 +226,11 @@ steps:
 
   - id: r5
     type: question
+    answer_key:
+      expected: "300-dimensional vectors"
+      points: 3
+      accept:
+        - "300"
     topic: "Reading Q5"
     say: |
       What is the dimensionality of the vectors used in the experiments summarized in Table 1?
@@ -236,37 +281,40 @@ prompts:
     You are an expert English tutor. Evaluate the student's reading comprehension answers and opinion essay.
 
     Student: 18 y.o., math major, B1 targeting B2.
+
+    GRAMMAR TEST (already scored automatically, do NOT re-score it): {mc_score}/{mc_max}.
+    Topics answered incorrectly: {mc_wrong_topics}
     Article: "Distributed Representations of Words and Phrases and their Compositionality" (Mikolov et al., 2013)
 
-    READING ANSWERS (5 questions):
-    Q1 (year of earliest word representations): {r1}
-    Q2 (words trained per day): {r2}
-    Q3 (subsampling formula): {r3}
-    Q4 (threshold t value): {r4}
-    Q5 (vector dimensionality): {r5}
-
-    Correct answers for reference:
-    Q1: 1986
-    Q2: More than 100 billion words
-    Q3: P(wi) = 1 - sqrt(t / f(wi))
-    Q4: Around 10^-5
-    Q5: 300-dimensional vectors
+    READING (already checked against the key automatically): {reading_score}/{reading_max}
+    Answers the checker could not match — judge ONLY these, is the student's answer
+    equivalent in meaning to the expected one? Be strict about facts, lenient about wording:
+    {reading_unmatched}
 
     ESSAY (opinion on whether vector representations will change language teaching):
     {essay_write}
 
-    Evaluate on three criteria:
-    1. READING ACCURACY (0-15): How many of the 5 reading questions are answered correctly? Give 3 points per correct answer.
-    2. ESSAY TASK ACHIEVEMENT (0-15): Is the opinion clearly stated? Are arguments supported? Is the length appropriate (150-200 words)?
-    3. ESSAY LANGUAGE (0-10): Grammar (especially Passive Voice), vocabulary range, coherence, academic style.
+    Evaluate the essay on two criteria. Pick the band by its description first, then a score inside it.
+
+    ESSAY TASK ACHIEVEMENT (0-15) — ЧЕРНОВИК, требует утверждения преподавателем:
+    13-15: clear opinion, 2+ developed arguments with support, 150-200 words, stays on topic
+    9-12:  opinion clear, arguments present but thin or unsupported, length slightly off
+    5-8:   opinion vague or arguments listed without development, noticeably short
+    0-4:   off topic, or too short to judge
+
+    ESSAY LANGUAGE (0-10) — ЧЕРНОВИК, требует утверждения преподавателем:
+    9-10: few errors, Passive Voice used correctly and naturally, academic vocabulary, connected text
+    7-8:  some tense or article errors, Passive attempted, limited linking
+    5-6:  regular basic errors, Passive avoided or misused, simple vocabulary, choppy
+    3-4:  errors impede understanding in places
+    0-2:  hard to follow
 
     Return STRICT JSON only:
     {{
-      "reading_score": 0,
+      "reading_verdicts": {{}},
       "essay_task_achievement": 0,
       "essay_language": 0,
-      "total": 0,
-      "reading_feedback": "Brief comment on reading answers",
+      "reading_feedback": "Brief comment on the reading answers",
       "essay_strengths": ["...", "..."],
       "essay_improvements": ["...", "..."],
       "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
@@ -281,6 +329,9 @@ prompts:
     }}
 
     Rules:
+    - Do NOT output a total score — the system sums it up itself
+    - reading_verdicts: one key per unmatched answer id listed above, value true or false, e.g. {{"r3": false}}; empty object if none are listed
+    - Do NOT re-score the grammar test or the matched reading answers
     - errors: 2-3 items from the essay, original — verbatim quote
     - recommended_vocabulary: 6-8 advanced B2-C1 words related to NLP, machine learning, or academic writing that the student should learn
     - All feedback in ENGLISH
@@ -290,9 +341,10 @@ prompts:
 
     STUDENT: 18 years old, math major, B1-B2 level.
 
-    GRAMMAR TEST: 10/10 (all correct!)
+    GRAMMAR TEST: {mc_score}/{mc_max}
+    Topics answered incorrectly: {mc_wrong_topics}
 
-    READING COMPREHENSION:
+    READING COMPREHENSION: {reading_score}/{reading_max}
     Student's answers:
     Q1 (year): {r1}
     Q2 (words per day): {r2}
@@ -302,7 +354,6 @@ prompts:
 
     Correct answers: Q1: 1986, Q2: More than 100 billion words, Q3: P(wi) = 1 - sqrt(t / f(wi)), Q4: Around 10^-5, Q5: 300-dimensional vectors
 
-    Reading score: {final_grade_reading_score}/15
     Reading feedback: {final_grade_reading_feedback}
 
     ESSAY:
@@ -327,10 +378,9 @@ prompts:
 
 schemas:
   final_grade:
-    reading_score: "int 0..15"
+    reading_verdicts: "dict id -> bool"
     essay_task_achievement: "int 0..15"
     essay_language: "int 0..10"
-    total: "int 0..50"
     reading_feedback: "str"
     essay_strengths: "list"
     essay_improvements: "list"
