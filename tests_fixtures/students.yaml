@@ -1,0 +1,62 @@
+# Тестовые студенты для smoke_llm.py.
+# Три уровня, чтобы увидеть и стабильность оценки, и то, что рубрика их различает.
+# mc_correct — сколько вопросов теста из 10 отвечено верно (первые N считаются верными).
+
+weak:
+  mc_correct: 4
+  reading:
+    r1: "1986 year"
+    r2: "many many words, maybe billion"
+    r3: "i dont know the formula"
+    r4: "t is small number"
+    r5: "300"
+  essay_write: |
+    I think vectors will change teaching languages but not very much. Computers is good
+    in math and words can be numbers now, it is interesting. But teacher is more important
+    because student need talk with people. Also when I learn english the computer help me
+    with translate, so maybe in future it help more. But I dont think that teacher will
+    lose his job. Many peoples like to learn with teacher and not with computer. So my
+    opinion is that it will change little but not all.
+
+mid:
+  mc_correct: 7
+  reading:
+    r1: "The earliest use dates back to 1986."
+    r2: "About one hundred billion words in one day"
+    r3: "P(wi) = 1 - sqrt(t/f(wi))"
+    r4: "It is usually around 10^-5"
+    r5: "The vectors had 300 dimensions"
+  essay_write: |
+    In my opinion, the approach described in the article will change how languages are
+    taught, but only partly. First of all, word vectors show that meaning can be measured
+    as a distance between words. This idea could be used in applications which help
+    students to find synonyms and to understand collocations faster. For example, a
+    learner can see that "king" and "queen" are close to each other in the vector space.
+    Secondly, personalised exercises can be generated automatically, because the system
+    knows which words are difficult for a student. However, I think that grammar and
+    speaking are not improved by vectors directly. Communication is still needed, and a
+    model cannot explain why a sentence sounds unnatural. To sum up, vector representations
+    will be used as a helpful tool, but they will not replace the teacher.
+
+strong:
+  mc_correct: 10
+  reading:
+    r1: "1986"
+    r2: "More than 100 billion words per day on a single machine"
+    r3: "P(w_i) = 1 - sqrt(t / f(w_i))"
+    r4: "Roughly 10^-5"
+    r5: "300-dimensional"
+  essay_write: |
+    I am convinced that distributed word representations will reshape language teaching,
+    although not in the way enthusiasts often predict. The key insight of the article is
+    that semantic relationships can be captured geometrically: words that appear in similar
+    contexts end up close to one another, and analogies can be expressed as simple vector
+    arithmetic. When this principle is applied to education, vocabulary could be taught
+    through networks of related meanings rather than isolated lists, which is arguably how
+    it is stored in the mind. Moreover, learner errors could be detected more precisely,
+    since an unnatural collocation is, in effect, a pair of words that are rarely seen
+    together. Nevertheless, it should be emphasised that these models are trained on
+    frequency, not on communicative intent. A vector cannot tell a student why a remark
+    was impolite or how an argument ought to be structured. Therefore, I believe vector
+    methods will be embedded in learning tools, while the pedagogical judgement will
+    remain firmly with teachers.
