@@ -211,6 +211,23 @@ steps:
     inputs: ["student_context", "answers"]
     output: schemas.vocab_gen
     save_as: vocab_gen
+    next: dialogue_feedback
+
+  - id: dialogue_feedback
+    type: gate
+    say: |
+      **Feedback on your dialogue**
+
+      {dialogue_eval_dialogue_feedback}
+
+      **Corrected version:**
+
+      {dialogue_eval_corrected_dialogue}
+
+      **Your Personalized Vocabulary List** — save it, you will use it in the next task:
+
+      {vocab_gen_vocabulary_md}
+    buttons: ["Continue to writing"]
     next: writing
 
   - id: writing
@@ -246,6 +263,8 @@ steps:
   - id: finish_gate
     type: gate
     say: |
+      {writing_eval_feedback_text}
+
       Your written task has been checked. If you're ready to receive the final Assessment Artifact with scores for all three parts to send to your teacher, please press the button below.
     buttons: ["Finish!"]
     next: report
@@ -256,7 +275,6 @@ steps:
     temperature: 0
     prompt: prompts.report
     inputs: ["student_context", "answers", "dialogue_eval", "vocab_gen", "writing_eval"]
-    output: schemas.report
     save_as: report
     next: deliver
 
@@ -405,6 +423,8 @@ prompts:
     
     GRAMMAR TEST (Part A): {mc_score}/10
     Topics answered incorrectly: {mc_wrong_topics}
+    Questions, the student's answers and the correct answers:
+    {mc_table}
     
     DIALOGUE (Part B):
     Accuracy: {dialogue_eval_dialogue_accuracy}/10
@@ -428,7 +448,7 @@ prompts:
     # АРТЕФАКТ: ОЦЕНКА МОДУЛЯ 1 (ПОВТОРЕНИЕ)
     
     ## Часть A. Grammar Bot Training (Макс. 10 баллов)
-    *(List student's answers for all 10 questions, correct answers, and brief explanations. 1 point per correct answer. Total: X/10)*
+    *(List student's answers for all 10 questions, correct answers, and brief explanations. 1 point per correct answer. Total: {mc_score}/10)*
     
     ## Часть B. Dialogue & Personalized Lexis (Макс. 20 баллов)
     **1. Corrected Dialogue Script:**
@@ -437,7 +457,7 @@ prompts:
     **2. Personalized Vocabulary List:**
     *(Full list of 6-8 items in format: Word / Translation / Definition / Example)*
     
-    **Оценка:** Accuracy: X/10, Fluency: Y/10. Итого: Z/20.
+    **Оценка:** Accuracy: {dialogue_eval_dialogue_accuracy}/10, Fluency: {dialogue_eval_dialogue_fluency}/10. Итого: {dialogue_eval_step_score}/20.
     
     ## Часть C. Interactive Writing (Макс. 20 баллов)
     **Текст студента:**
@@ -449,27 +469,18 @@ prompts:
     - Vocabulary: (confirmation: used N items from personalized list, list them)
     - Corrections: (corrected errors if any)
     
-    **Оценка:** Grammar & Accuracy: X/10, Vocabulary & Task Fulfillment: Y/10. Итого: Z/20.
+    **Оценка:** Grammar & Accuracy: {writing_eval_writing_grammar}/10, Vocabulary & Task Fulfillment: {writing_eval_writing_vocabulary}/10. Итого: {writing_eval_step_score}/20.
     
     ---
     
-    ### ИТОГОВАЯ ОЦЕНКА: [Total] / 50
+    ### ИТОГОВАЯ ОЦЕНКА: {total} / 50
     
     *Professional Tutor's Note: Отличная работа над повторением материала! Ваша сильная сторона: [указать]. Зона для роста: [указать].*
     
-    Return STRICT JSON only:
-    {{
-      "feedback_text": "Markdown artifact text following the structure above",
-      "profile_notes": {{
-        "estimated_level": "B1 | B1+ | B2",
-        "vocabulary_gaps": ["..."],
-        "grammar_gaps": ["..."]
-      }}
-    }}
+    Return ONLY the markdown artifact itself: no JSON, no code fences, no comments before or after it.
     
     Rules:
-    - feedback_text must be valid markdown
-    - Calculate total score: mc_score + dialogue_accuracy + dialogue_fluency + writing_grammar + writing_vocabulary
+    - Keep every score exactly as given above; do not recalculate or change any numbers
     - All content in RUSSIAN except vocabulary definitions/examples
     - Do NOT include teacher meta information (tokens, flags, hash) — the system adds it separately
 
@@ -491,13 +502,6 @@ schemas:
     feedback_text: "str"
     constraint_check: "dict"
     errors: "list"
-  
-  report:
-    feedback_text: "str (markdown artifact)"
-    profile_notes:
-      estimated_level: "str"
-      vocabulary_gaps: "list"
-      grammar_gaps: "list"
 
 templates:
   final_md: |

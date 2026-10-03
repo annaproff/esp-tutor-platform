@@ -146,7 +146,8 @@ def extract_total(grade_json):
         return None
     if isinstance(grade_json.get("total"), (int, float)):
         return grade_json["total"]
-    for value in grade_json.values():
+    # Шагов с оценкой несколько: у каждого накопленный итог, полный — у последнего.
+    for value in reversed(list(grade_json.values())):
         if isinstance(value, dict) and isinstance(value.get("total"), (int, float)):
             return value["total"]
     return None
@@ -221,8 +222,64 @@ def compute_total(grade, mc, task_data, reading=None):
     llm_total = grade.get("total")
     if isinstance(llm_total, int) and llm_total != total:
         flags.append(f"llm_total_mismatch:{llm_total}!={total}")
-    
+
     return total, flags
+
+def scores_so_far(llm_results, task_data):
+    """Оценочные поля из всех пройденных шагов модели.
+
+    Баллы за диалог и за письмо приходят из разных шагов. Раньше итог складывался
+    внутри каждого шага отдельно, и баллы за письмо в него не попадали.
+    """
+    fields = task_data.get("settings", {}).get("scoring", {}).get("llm_score_fields", []) or []
+    scores = {}
+    for result in (llm_results or {}).values():
+        if isinstance(result, dict):
+            scores.update({f: result[f] for f in fields if f in result})
+    return scores
+
+def score_llm_result(result, step_id, llm_results, mc, task_data):
+    """Если шаг модели ставит баллы — дописывает в его результат баллы шага
+    (step_score, например диалог из 20) и итог по всем частям (total). Возвращает флаги."""
+    fields = task_data.get("settings", {}).get("scoring", {}).get("llm_score_fields", []) or []
+    if not isinstance(result, dict) or not any(f in result for f in fields):
+        return []
+    step_score, flags = compute_total(result, {"score": 0}, task_data, None)
+    so_far = dict(llm_results or {}, **{step_id: result})
+    total, _ = compute_total(scores_so_far(so_far, task_data), mc, task_data, None)
+    result["step_score"] = step_score
+    result["mc_score"] = mc["score"]
+    result["total_llm"] = result.get("total")
+    result["total"] = total
+    return flags
+
+def mc_table(answers, steps):
+    """Вопросы теста с ответом студента и правильным — чтобы модель в отчёте
+    разбирала настоящие ответы, а не придумывала их."""
+    lines = []
+    for i, s in enumerate([x for x in steps if x.get("type") == "multiple_choice"], 1):
+        options = s.get("options", {})
+        saved = answers.get(s["id"]) if isinstance(answers.get(s["id"]), dict) else {}
+        chosen = saved.get("selected")
+        mark = "correct" if saved.get("is_correct") else "WRONG"
+        lines.append(
+            f'{i}. {s.get("question", "")} | student: {chosen}) {options.get(chosen, "—")}'
+            f' | correct: {s.get("correct")}) {options.get(s.get("correct"), "")} | {mark} | {s.get("topic", "")}'
+        )
+    return "\n".join(lines)
+
+def fill_step_text(text, context):
+    """Подставляет в текст шага для студента результаты прошлых шагов,
+    например {vocab_gen_vocabulary_md}. Чего нет — пусто, а не скобки на экране."""
+    if not text or "{" not in text:
+        return text
+    try:
+        filled, missing = build_prompt(text, context)
+    except (ValueError, IndexError):
+        return text
+    for key in missing:
+        filled = filled.replace("{" + key + "}", "")
+    return filled
 
 def get_or_create_student(full_name):
     name_key = normalize_name(full_name)
@@ -262,7 +319,7 @@ def find_in_progress_session(full_name, task_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        """SELECT id, current_step, answers, flags FROM sessions
+        """SELECT id, current_step, answers, flags, grade_json FROM sessions
         WHERE full_name = ? AND task_id = ? AND status = 'in_progress'
         ORDER BY created_at DESC LIMIT 1""",
         (full_name, task_id),
@@ -455,14 +512,14 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
     
     context = build_llm_context(
         answers, profile, student_context, unit_config, mc, reading,
-        st.session_state.get("llm_results", {}),
+        st.session_state.get("llm_results", {}), steps=task_data.get("steps", []),
     )
     prompt = format_prompt_with_context(prompt_template, context)
     
     with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
         return _run_llm_step(step, task_data, prompt, model_name)
 
-def build_llm_context(answers, profile, student_context, unit_config=None, mc=None, reading=None, llm_results=None):
+def build_llm_context(answers, profile, student_context, unit_config=None, mc=None, reading=None, llm_results=None, steps=None):
     context = {
         "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
     }
@@ -480,7 +537,9 @@ def build_llm_context(answers, profile, student_context, unit_config=None, mc=No
     context["mc_correct"] = mc["correct"]
     context["mc_items"] = mc["items"]
     context["mc_wrong_topics"] = ", ".join(mc["wrong_topics"]) if mc["wrong_topics"] else "none"
-    
+    if steps:
+        context["mc_table"] = mc_table(answers, steps)
+
     if reading:
         context["reading_score"] = reading.get("score", 0)
         context["reading_max"] = reading.get("max", 0)
@@ -490,7 +549,10 @@ def build_llm_context(answers, profile, student_context, unit_config=None, mc=No
             context[key] = str(value)
     
     context.update(flatten_llm_results(llm_results or {}))
-    
+    total = extract_total(llm_results or {})
+    if total is not None:
+        context["total"] = total
+
     return context
 
 def _run_llm_step(step, task_data, prompt, model_name):
@@ -594,13 +656,17 @@ elif st.session_state.get("mode") == "admin":
                 if 'grade_json' in df.columns:
                     df['grade_json'] = df['grade_json'].apply(lambda x: json.loads(x) if pd.notna(x) and isinstance(x, str) else x)
                     df['total'] = df.apply(
-                        lambda row: row['total'] if pd.notna(row.get('total')) else extract_total(row['grade_json']),
+                        # Итог — только у завершённых: у незаконченных в базе лежат промежуточные баллы.
+                        lambda row: row['total'] if pd.notna(row.get('total')) else (
+                            extract_total(row['grade_json']) if row.get('status') == 'completed' else None),
                         axis=1
                     )
                 
                 st.subheader("Summary Table")
-                if 'total' in df.columns and df['total'].notna().any():
-                    pivot = df.pivot_table(index=['full_name'], columns='task_id', values='total', aggfunc='first')
+                done = df[df['status'] == 'completed'] if 'status' in df.columns else df
+                if 'total' in done.columns and done['total'].notna().any():
+                    # Последняя завершённая попытка: после «Allow retry» показываем новую, а не первую.
+                    pivot = done.pivot_table(index=['full_name'], columns='task_id', values='total', aggfunc='last')
                     st.dataframe(pivot.fillna("—"), use_container_width=True)
                 
                 st.markdown("---")
@@ -711,6 +777,7 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                         st.session_state.session_id = unfinished["id"]
                         st.session_state.answers = json.loads(unfinished["answers"] or "{}")
                         st.session_state.flags = json.loads(unfinished["flags"] or "[]")
+                        st.session_state.llm_results = json.loads(unfinished["grade_json"] or "{}")
                         st.session_state.current_step_idx = int(unfinished["current_step"] or 0)
                         st.session_state[resume_key] = True
                         st.rerun()
@@ -737,7 +804,13 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
         if step_idx < len(steps):
             current_step = steps[step_idx]
             step_type = current_step.get("type", "question")
-            
+            if step_type in ("gate", "question", "message") and "{" in str(current_step.get("say", "")):
+                text_context = build_llm_context(
+                    st.session_state.answers, {}, task_data.get("meta", {}).get("student_context", {}),
+                    unit_config, None, None, st.session_state.llm_results,
+                )
+                current_step = dict(current_step, say=fill_step_text(current_step["say"], text_context))
+
             if step_type == "gate":
                 if render_gate_step(current_step):
                     st.session_state.current_step_idx = step_idx + 1
@@ -804,16 +877,24 @@ elif st.session_state.get("mode") == "student" and "student_name" in st.session_
                     None,
                 )
                 
-                if isinstance(result, dict) and any(
-                    f in result for f in task_data.get("settings", {}).get("scoring", {}).get("llm_score_fields", [])
-                ):
-                    total, score_flags = compute_total(result, mc, task_data, None)
-                    result["mc_score"] = mc["score"]
-                    result["total_llm"] = result.get("total")
-                    result["total"] = total
-                    st.session_state.flags.extend(score_flags)
-                
+                st.session_state.flags.extend(
+                    score_llm_result(result, current_step["id"], st.session_state.llm_results, mc, task_data)
+                )
                 st.session_state.llm_results[current_step["id"]] = result
+                # Сохраняем результаты модели: после обновления вкладки словарь и баллы
+                # за диалог нужны для письма и итога, а модель второй раз не вызывается.
+                if st.session_state.session_id:
+                    try:
+                        conn = get_db_connection()
+                        conn.execute(
+                            "UPDATE sessions SET current_step = ?, grade_json = ? WHERE id = ?",
+                            (step_idx + 1, json.dumps(st.session_state.llm_results, ensure_ascii=False),
+                             st.session_state.session_id),
+                        )
+                        conn.commit()
+                        conn.close()
+                    except Exception as e:
+                        st.error(f"Database error: {e}")
                 st.session_state.token_usage["prompt_tokens"] += tokens.get("prompt_tokens", 0)
                 st.session_state.token_usage["completion_tokens"] += tokens.get("completion_tokens", 0)
                 st.session_state.token_usage["total_tokens"] += tokens.get("total_tokens", 0)
