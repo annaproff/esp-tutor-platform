@@ -10,11 +10,10 @@ ROOT = pathlib.Path(__file__).resolve().parent
 src = (ROOT / "app.py").read_text(encoding="utf-8")
 tree = ast.parse(src)
 wanted = {
-    "score_multiple_choice", "compute_total", "extract_total", "flatten_answers",
-    "normalize_text", "match_answer_key", "score_reading", "apply_reading_verdicts",
-    "format_reading_for_prompt", "normalize_name", "is_valid_name",
-    "resolve_ref", "build_prompt", "_KeepMissing", "reading_with_verdicts",
-    "init_db", "get_or_create_student", "allow_retry", "check_attempts",
+    "score_multiple_choice", "compute_total", "extract_total", "flatten_answers", "flatten_llm_results",
+    "normalize_name", "is_valid_name", "resolve_ref", "build_prompt", "_KeepMissing",
+    "scores_so_far", "score_llm_result", "mc_table", "fill_step_text", "build_llm_context",
+    "init_db", "get_or_create_student", "allow_retry", "check_attempts", "find_in_progress_session",
 }
 DB_FILE = pathlib.Path(tempfile.mkdtemp()) / "tutor.db"
 
@@ -48,56 +47,55 @@ assert (mc["correct"], mc["items"], mc["score"], mc["max"]) == (7, 10, 7, 10), m
 assert len(mc["wrong_topics"]) == 3, mc
 print("1. тест с вариантами:", mc["score"], "/", mc["max"], "| ошибки в темах:", mc["wrong_topics"])
 
-# --- 2. короткие ответы сверяются кодом, в разных формулировках ---
-answers.update({
-    "r1": "In 1986, as far as I remember",
-    "r2": "more than 100 billion words per day",
-    "r3": "P(wi)=1-sqrt(t/f(wi))",
-    "r4": "приблизительно 10^-5",
-    "r5": "they used 300 dimensions",
-    "essay_write": "Word vectors are used in many systems ...",
-})
-reading = ns["score_reading"](answers, steps)
-assert reading["score"] == reading["max"] == 15, reading
-print("2. автопроверка чтения:", reading["score"], "/", reading["max"], "| на суждение модели:", len(reading["unmatched"]))
+# --- 2. итог складывается по всем частям, а не внутри одного шага ---
+results = {}
+dialogue = {"dialogue_accuracy": 7, "dialogue_fluency": 8, "dialogue_feedback": "Mind articles."}
+ns["score_llm_result"](dialogue, "dialogue_eval", results, mc, task)
+results["dialogue_eval"] = dialogue
+vocab = {"vocabulary_md": "**portability** — портативность"}
+assert ns["score_llm_result"](vocab, "vocab_gen", results, mc, task) == [] and "total" not in vocab
+results["vocab_gen"] = vocab
+writing = {"writing_grammar": 8, "writing_vocabulary": 6, "feedback_text": "Good.", "constraint_check": {}}
+ns["score_llm_result"](writing, "writing_eval", results, mc, task)
+results["writing_eval"] = writing
+assert dialogue["step_score"] == 15 and writing["step_score"] == 14, (dialogue, writing)
+assert writing["total"] == 7 + 15 + 14 == 36, writing
+assert ns["extract_total"](results) == 36, "итог должен браться у последнего шага с оценкой"
+print("2. итог по всем частям: тест 7 + диалог 15 + письмо 14 =", ns["extract_total"](results))
 
-# --- 3. неузнанный ответ уходит модели, а не обнуляется молча ---
-answers["r2"] = "ten to the eleventh power of words"
-reading2 = ns["score_reading"](answers, steps)
-assert reading2["score"] == 12 and len(reading2["unmatched"]) == 1, reading2
-assert "r2" in ns["format_reading_for_prompt"](reading2)
-reading2, vflags = ns["apply_reading_verdicts"](reading2, {"r2": True})
-assert reading2["score"] == 15, reading2
-assert vflags == ["reading_accepted_by_llm:r2"], vflags
-print("3. вердикт модели по неузнанному ответу:", reading2["score"], "/ 15 | флаги:", vflags)
+# --- 3. завышенные баллы модели обрезаются, мусор не роняет подсчёт ---
+over = {"dialogue_accuracy": 99, "dialogue_fluency": "отлично"}
+flags = ns["score_llm_result"](over, "dialogue_eval", {}, mc, task)
+assert over["step_score"] == 10, over
+assert any("over_max" in f for f in flags) and any("not_a_number" in f for f in flags), flags
+print("3. 99 баллов обрезаны до 10, нечисло — 0 | флаги:", flags)
 
-# отказ модели ничего не добавляет
-reading3, _ = ns["apply_reading_verdicts"](ns["score_reading"](answers, steps), {"r2": False})
-assert reading3["score"] == 12, reading3
-print("   отказ модели:", reading3["score"], "/ 15")
-
-# --- 4. итог считает код, завышенные баллы модели обрезаются ---
-grade = {"essay_task_achievement": 99, "essay_language": 7, "total": 50}
-total, flags = ns["compute_total"](grade, mc, task, reading2)
-assert total == 7 + 15 + 15 + 7 == 44, total
-assert any("over_max" in f for f in flags) and any("mismatch" in f for f in flags), flags
-print("4. итог:", total, "| флаги:", flags)
-
-# --- 5. мусор от модели не роняет подсчёт ---
-total2, flags2 = ns["compute_total"]({"essay_language": "отлично"}, mc, task, reading2)
-assert total2 == 7 + 15, total2
-print("5. битый ответ модели:", total2, "| флаги:", flags2)
-
-# --- 6. total находится на любом уровне вложенности ---
-assert ns["extract_total"]({"final_grade": {"total": 44}, "report": {}}) == 44
+# --- 4. total находится на любом уровне вложенности ---
 assert ns["extract_total"]({"total": 33}) == 33
 assert ns["extract_total"]({"report": {"feedback_text": "..."}}) is None
-print("6. извлечение total из llm_results: ок")
+print("4. извлечение total из llm_results: ок")
+
+# --- 5. в отчёт уходят готовые баллы и настоящие вопросы теста ---
+answers.update({"d1": "a", "d2": "b", "d3": "c", "d4": "d", "writing": "text"})
+ctx = ns["build_llm_context"](answers, {}, task["meta"]["student_context"], None, mc, None, results, steps=steps)
+report, report_missing = ns["build_prompt"](ns["resolve_ref"](task, "prompts", "prompts.report"), ctx)
+assert not report_missing, report_missing
+assert "ИТОГОВАЯ ОЦЕНКА: 36 / 50" in report and "Итого: 15/20" in report and "Итого: 14/20" in report
+assert "The new educational software" in report and "WRONG" in report
+print("5. отчёт: итог 36/50 и баллы частей от кода, таблица теста с вопросами")
+
+# --- 6. текст для студента: результаты прошлых шагов подставлены, пропуски не видны ---
+text_ctx = ns["build_llm_context"](answers, {}, {}, None, None, None, results)
+writing_step = next(x for x in steps if x["id"] == "writing")
+shown = ns["fill_step_text"](writing_step["say"], text_ctx)
+assert "portability" in shown and "{" not in shown, shown
+assert ns["fill_step_text"]("Слова: {vocab_gen_vocabulary_md}.", {}) == "Слова: ."
+assert ns["fill_step_text"]("скобка } без пары {x}", {"x": 1}) == "скобка } без пары {x}"
+print("6. задание на письмо показывает словарь; пустое значение — пусто, а не {скобки}")
 
 # --- 7. ключи вариантов больше не перетирают друг друга ---
 flat = ns["flatten_answers"](answers)
 assert flat["g1_is_correct"] != flat["g10_is_correct"], "ключи всё ещё склеиваются"
-assert flat["r1"].startswith("In 1986")
 print("7. плоские ключи: g1_selected =", flat["g1_selected"], ", g10_selected =", flat["g10_selected"])
 
 # --- 8. имена: перестановка, регистр и ё не создают дубль, латиница проходит ---
@@ -107,12 +105,11 @@ assert ns["is_valid_name"]("Anna Smirnova") and not ns["is_valid_name"]("Анн�
 print("8. имена: перестановка, регистр и ё — один студент, латиница проходит")
 
 # --- 9. промпт находится по ссылке из шаблона (раньше в модель уходила пустая строка) ---
-for step_id in ("final_grade", "report"):
-    step = next(x for x in steps if x["id"] == step_id)
+for step in [x for x in steps if x.get("type") == "llm"]:
     found = ns["resolve_ref"](task, "prompts", step["prompt"])
-    assert found and len(found) > 200, f"промпт для {step_id} не найден по ссылке {step['prompt']}"
-assert ns["resolve_ref"](task, "schemas", "schemas.final_grade")
-assert ns["resolve_ref"](task, "prompts", "final_grade")  # короткая форма тоже работает
+    assert found and len(found) > 200, f"промпт для {step['id']} не найден по ссылке {step['prompt']}"
+assert ns["resolve_ref"](task, "schemas", "schemas.dialogue_eval")
+assert ns["resolve_ref"](task, "prompts", "writing_eval")  # короткая форма тоже работает
 assert ns["resolve_ref"](task, "prompts", "prompts.nope") is None
 print("9. промпты и схемы находятся по ссылкам из шаблона: ок")
 
@@ -121,15 +118,7 @@ text, miss = ns["build_prompt"]("score {a}, lost {b}, json {{x}}", {"a": 5})
 assert text == "score 5, lost {b}, json {x}" and miss == ["b"], (text, miss)
 print("10. подстановка с пропуском:", repr(text), "| пропущено:", miss)
 
-# --- 11. отчёт видит то же чтение, что вошло в итог ---
-answers["r2"] = "ten to the eleventh power of words"
-llm_results = {"final_grade": {"reading_verdicts": {"r2": True}, "total": 44}}
-assert ns["score_reading"](answers, steps)["score"] == 12
-assert ns["reading_with_verdicts"](answers, steps, llm_results)["score"] == 15
-assert ns["reading_with_verdicts"](answers, steps, {})["score"] == 12
-print("11. чтение для отчёта с вердиктом модели: 15 / 15 (без вердикта было бы 12)")
-
-# --- 12. вход по ФИО: старая база не падает, разное написание — один студент ---
+# --- 11. вход по ФИО: старая база не падает, разное написание — один студент ---
 old = sqlite3.connect(DB_FILE)
 old.execute("CREATE TABLE students (id TEXT PRIMARY KEY, full_name TEXT UNIQUE NOT NULL, profile_json TEXT DEFAULT '{}')")
 old.execute("INSERT INTO students VALUES ('old-1', 'Иванов Иван', '{\"estimated_level\": \"B1\"}')")
@@ -141,9 +130,9 @@ assert (sid, name, profile) == ("old-1", "Иванов Иван", {"estimated_le
 sid2, name2, _ = ns["get_or_create_student"]("Anna   Smirnova")
 assert sid2 != sid and name2 == "Anna Smirnova"
 assert ns["get_or_create_student"]("smirnova anna")[0] == sid2
-print("12. вход по ФИО: старая запись найдена при другом написании, профиль на месте, дублей нет")
+print("11. вход по ФИО: старая запись найдена при другом написании, профиль на месте, дублей нет")
 
-# --- 13. преподаватель разрешает пройти заново ---
+# --- 12. преподаватель разрешает пройти заново ---
 conn = get_db_connection()
 conn.execute("INSERT INTO sessions (id, full_name, task_id, status) VALUES ('s-1', 'Иванов Иван', 'unit_1', 'completed')")
 conn.commit()
@@ -153,6 +142,16 @@ ns["allow_retry"]("s-1")
 assert ns["check_attempts"]("Иванов Иван", "unit_1", 1)
 status = get_db_connection().execute("SELECT status FROM sessions WHERE id = 's-1'").fetchone()[0]
 assert status == "retry_allowed", status
-print("13. сброс попытки: студент снова может пройти юнит, старая запись осталась в истории")
+print("12. сброс попытки: студент снова может пройти юнит, старая запись осталась в истории")
+
+# --- 13. продолжение попытки возвращает и результаты модели ---
+conn = get_db_connection()
+conn.execute("INSERT INTO sessions (id, full_name, task_id, status, current_step, grade_json) "
+             "VALUES ('s-2', 'Anna Smirnova', 'unit_vol3-1', 'in_progress', 17, ?)", (json.dumps(results),))
+conn.commit()
+conn.close()
+unfinished = ns["find_in_progress_session"]("Anna Smirnova", "unit_vol3-1")
+assert json.loads(unfinished["grade_json"])["vocab_gen"]["vocabulary_md"].startswith("**portability**")
+print("13. после обновления вкладки словарь и баллы за диалог возвращаются из базы")
 
 print("\nвсе проверки прошли")

@@ -19,8 +19,8 @@ ROOT = pathlib.Path(__file__).resolve().parent
 # --- берём функции прямо из app.py, чтобы не было второй копии логики ---
 PURE = {
     "resolve_ref", "build_prompt", "_KeepMissing", "build_llm_context",
-    "flatten_answers", "flatten_llm_results", "format_profile_for_prompt",
-    "score_multiple_choice", "compute_total",
+    "flatten_answers", "flatten_llm_results", "extract_total", "mc_table",
+    "score_multiple_choice", "compute_total", "scores_so_far", "score_llm_result",
 }
 
 tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
@@ -88,7 +88,8 @@ def main():
     args = ap.parse_args()
 
     task = yaml.safe_load((ROOT / "tasks" / "template.yaml").read_text(encoding="utf-8"))
-    unit = json.loads((ROOT / "tasks" / "units" / "unit_01.json").read_text(encoding="utf-8"))
+    unit_file = sorted((ROOT / "tasks" / "units").glob("*.json"))[0]  # как в app.py: первый юнит из папки
+    unit = json.loads(unit_file.read_text(encoding="utf-8"))
     students = yaml.safe_load((ROOT / "tests_fixtures" / "students.yaml").read_text(encoding="utf-8"))
 
     steps = task["steps"]
@@ -157,16 +158,29 @@ def main():
                 "errors": []
             }
             
-            ctx_report = ns["build_llm_context"](
-                answers, {}, student_context, unit, mc, None,
-                {"dialogue_eval": fake_dialogue, "vocab_gen": fake_vocab, "writing_eval": fake_writing}
-            )
-            _, rep_missing = ns["build_prompt"](report_tpl, ctx_report)
+            # Баллы шагов считаются тем же кодом, что в app.py
+            results = {}
+            for step_id, fake in [("dialogue_eval", fake_dialogue), ("vocab_gen", fake_vocab), ("writing_eval", fake_writing)]:
+                ns["score_llm_result"](fake, step_id, results, mc, task)
+                results[step_id] = fake
+            ctx_report = ns["build_llm_context"](answers, {}, student_context, unit, mc, None, results, steps=steps)
+            report_prompt, rep_missing = ns["build_prompt"](report_tpl, ctx_report)
             if rep_missing:
                 gate_ok = False
                 print(f"   ❌ не подставились переменные в report: {rep_missing}")
             else:
-                print("   ✅ report: все переменные на месте")
+                total_line = next((l.strip() for l in report_prompt.splitlines() if "ИТОГОВАЯ" in l), "")
+                print(f"   ✅ report: все переменные на месте | {total_line}")
+            # Тексты, которые видит студент: словарь, отзывы — тоже должны подставиться
+            ctx_text = ns["build_llm_context"](answers, {}, student_context, unit, None, None, results)
+            for step in steps:
+                if "{" in str(step.get("say", "")):
+                    _, text_missing = ns["build_prompt"](step["say"], ctx_text)
+                    if text_missing:
+                        gate_ok = False
+                        print(f"   ❌ текст шага {step['id']}: не подставилось {text_missing}")
+                    else:
+                        print(f"   ✅ текст шага {step['id']}: подстановки на месте")
             continue
 
         # Живой прогон: dialogue_eval -> vocab_gen -> writing_eval
