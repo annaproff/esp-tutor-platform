@@ -1,62 +1,44 @@
 # Тестовые студенты для smoke_llm.py.
 # Три уровня, чтобы увидеть и стабильность оценки, и то, что рубрика их различает.
 # mc_correct — сколько вопросов теста из 10 отвечено верно (первые N считаются верными).
+# dialogue — 4 реплики студента в диалоге про идеальный компьютер.
+# writing — текст рекомендации (~120 слов) с использованием Passive Voice и Relative Clauses.
 
 weak:
   mc_correct: 4
-  reading:
-    r1: "1986 year"
-    r2: "many many words, maybe billion"
-    r3: "i dont know the formula"
-    r4: "t is small number"
-    r5: "300"
-  essay_write: |
-    I think vectors will change teaching languages but not very much. Computers is good
-    in math and words can be numbers now, it is interesting. But teacher is more important
-    because student need talk with people. Also when I learn english the computer help me
-    with translate, so maybe in future it help more. But I dont think that teacher will
-    lose his job. Many peoples like to learn with teacher and not with computer. So my
-    opinion is that it will change little but not all.
+  dialogue:
+    d1: "I want laptop for study and play games. I use it for homework and internet."
+    d2: "I need good processor and big screen. Battery is not important."
+    d3: "My budget is 500 dollars. I want light laptop but not very important."
+    d4: "SSD is good idea. 8GB RAM is enough for me I think."
+  writing: |
+    Hi teacher. I want recommend laptop for you. You need buy new laptop for study.
+    The laptop is recommended by me. It has good processor. The processor is fast.
+    You can use it for english lessons. It is cheap and good. I think this is best
+    choice for you. Please buy it soon. Thank you.
 
 mid:
   mc_correct: 7
-  reading:
-    r1: "The earliest use dates back to 1986."
-    r2: "About one hundred billion words in one day"
-    r3: "P(wi) = 1 - sqrt(t/f(wi))"
-    r4: "It is usually around 10^-5"
-    r5: "The vectors had 300 dimensions"
-  essay_write: |
-    In my opinion, the approach described in the article will change how languages are
-    taught, but only partly. First of all, word vectors show that meaning can be measured
-    as a distance between words. This idea could be used in applications which help
-    students to find synonyms and to understand collocations faster. For example, a
-    learner can see that "king" and "queen" are close to each other in the vector space.
-    Secondly, personalised exercises can be generated automatically, because the system
-    knows which words are difficult for a student. However, I think that grammar and
-    speaking are not improved by vectors directly. Communication is still needed, and a
-    model cannot explain why a sentence sounds unnatural. To sum up, vector representations
-    will be used as a helpful tool, but they will not replace the teacher.
+  dialogue:
+    d1: "I'm looking for a laptop primarily for my university studies. I need it for programming assignments and writing papers."
+    d2: "The most important features would be a good processor, at least 16GB of RAM, and decent battery life since I study in the library."
+    d3: "My budget is around $1200. Portability is quite important because I carry it to university every day."
+    d4: "That sounds like a good direction. SSD storage would definitely make the system faster, and 8GB of RAM should be sufficient for my needs."
+  writing: |
+    Dear Professor,
+    I would like to recommend a basic user laptop that is suitable for your English teaching needs. A reliable laptop with at least 8GB of RAM should be purchased, as it will be used for preparing lessons and grading papers. The laptop, which has a solid-state drive, will boot up quickly and allow you to work efficiently. Additionally, a model that has a comfortable keyboard is essential for typing documents. The device should be lightweight, so it can be easily carried to classes. I believe this configuration will meet all your requirements perfectly.
+    Best regards,
+    Student
 
 strong:
   mc_correct: 10
-  reading:
-    r1: "1986"
-    r2: "More than 100 billion words per day on a single machine"
-    r3: "P(w_i) = 1 - sqrt(t / f(w_i))"
-    r4: "Roughly 10^-5"
-    r5: "300-dimensional"
-  essay_write: |
-    I am convinced that distributed word representations will reshape language teaching,
-    although not in the way enthusiasts often predict. The key insight of the article is
-    that semantic relationships can be captured geometrically: words that appear in similar
-    contexts end up close to one another, and analogies can be expressed as simple vector
-    arithmetic. When this principle is applied to education, vocabulary could be taught
-    through networks of related meanings rather than isolated lists, which is arguably how
-    it is stored in the mind. Moreover, learner errors could be detected more precisely,
-    since an unnatural collocation is, in effect, a pair of words that are rarely seen
-    together. Nevertheless, it should be emphasised that these models are trained on
-    frequency, not on communicative intent. A vector cannot tell a student why a remark
-    was impolite or how an argument ought to be structured. Therefore, I believe vector
-    methods will be embedded in learning tools, while the pedagogical judgement will
-    remain firmly with teachers.
+  dialogue:
+    d1: "I'm primarily looking for a high-performance laptop for my mathematics studies. I'll be using it for complex calculations, running statistical software, and attending online lectures."
+    d2: "The most critical features would be a powerful multi-core processor, at least 32GB of RAM for handling large datasets, and exceptional battery life for long study sessions."
+    d3: "My budget is approximately $2000. Portability is moderately important, but I prioritize performance over weight since I mainly work at my desk."
+    d4: "That's an excellent suggestion. SSD storage is absolutely essential for fast data access, and while 8GB of RAM might suffice for basic tasks, I'd recommend at least 16GB for my computational work."
+  writing: |
+    Dear Professor Smith,
+    I am writing to recommend a basic user laptop that would be ideally suited for your English teaching requirements. A high-quality laptop, which features at least 8GB of RAM and a solid-state drive, should be purchased to ensure smooth performance during lesson preparation. The device, whose battery life exceeds 10 hours, will be particularly beneficial for your mobile teaching schedule. Furthermore, a model that is equipped with a comfortable keyboard and high-resolution display is strongly recommended, as these features will be utilized daily for grading and document creation. The laptop, which has been designed with portability in mind, can be easily transported between classrooms. I am confident that this configuration will perfectly meet your professional needs.
+    Sincerely,
+    Your Student
