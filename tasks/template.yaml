@@ -2,9 +2,9 @@ meta:
   id: "unit_{{UNIT_NUMBER}}"
   title: "{{UNIT_TITLE}}"
   max_score: 50
-  llm_calls: 3
-  est_tokens: "15-20k"
-  est_cost_rub: "12-18"
+  llm_calls: 4
+  est_tokens: "20-30k"
+  est_cost_rub: "18-25"
   student_context:
     age: 18
     major: mathematics
@@ -18,251 +18,245 @@ settings:
     russian_detect: "cyrillic > 30%"
   attempts:
     max: 1
-  # Как считается итог. Тестовую часть считает код, оценочную — модель,
-  # сумму снова код. max_by_field обрезает завышенные баллы модели.
   scoring:
     mc_points_per_item: 1
-    # Чтение теперь тоже считает код по answer_key у шагов r1..r5.
-    # Модели остаётся только эссе.
-    llm_score_fields: [essay_task_achievement, essay_language]
+    llm_score_fields: [dialogue_accuracy, dialogue_fluency, writing_grammar, writing_vocabulary]
     max_by_field:
-      essay_task_achievement: 15
-      essay_language: 10
+      dialogue_accuracy: 10
+      dialogue_fluency: 10
+      writing_grammar: 10
+      writing_vocabulary: 10
 
 steps:
   - id: start
     type: gate
     say: |
-      Hi! This is a 50-point task based on the article "Distributed Representations of Words and Phrases" (Mikolov et al., 2013).
-
-      **Part 1:** Grammar - Passive Voice (10 MCQs, 10 pts)
-      **Part 2:** Reading Comprehension - Scanning (5 questions, 15 pts)
-      **Part 3:** Opinion Essay (150-200 words, 25 pts)
-
+      Hi! This is a 50-point task based on Module 1 (Technology & Digital Habits).
+      Part 1: Grammar Bot Training (10 MCQs, 10 pts)
+      Part 2: Dialogue & Personalized Lexis (4 questions, 20 pts)
+      Part 3: Interactive Writing (~120 words, 20 pts)
       Press Start when you're ready.
     buttons: ["Start"]
     next: g1
 
   - id: g1
     type: multiple_choice
-    topic: "Present Simple Passive"
-    question: "The new security patch ______ by the development team every month."
+    topic: "Past Simple Passive"
+    question: "The new educational software _______ by the IT department last week."
     options:
-      A: "is deployed"
-      B: "was deployed"
-      C: "has been deployed"
-      D: "deploys"
+      A: "was installed"
+      B: "installed"
+      C: "has been installing"
+      D: "installs"
     correct: A
     next: g2
 
   - id: g2
     type: multiple_choice
-    topic: "Past Simple Passive"
-    question: "The database ______ last night during the maintenance window."
+    topic: "Relative Clause (whose)"
+    question: "The laptop, _______ battery life is exceptional, is highly recommended for students."
     options:
-      A: "is backed up"
-      B: "was backed up"
-      C: "has been backed up"
-      D: "backed up"
+      A: "which"
+      B: "whose"
+      C: "that"
+      D: "who"
     correct: B
     next: g3
 
   - id: g3
     type: multiple_choice
-    topic: "Present Perfect Passive"
-    question: "Several vulnerabilities ______ in the system so far."
+    topic: "Present Simple Passive"
+    question: "AI tools _______ to assist teachers in creating personalized learning plans."
     options:
-      A: "are discovered"
-      B: "were discovered"
-      C: "have been discovered"
-      D: "discovered"
-    correct: C
+      A: "are increasingly used"
+      B: "increasingly use"
+      C: "have increasingly used"
+      D: "are increasingly using"
+    correct: A
     next: g4
 
   - id: g4
     type: multiple_choice
-    topic: "Past Perfect Passive"
-    question: "The server ______ before the attack occurred."
+    topic: "Relative Clause (which)"
+    question: "The user manual, _______ was included in the box, is very easy to understand."
     options:
-      A: "is compromised"
-      B: "was compromised"
-      C: "had been compromised"
-      D: "has been compromised"
+      A: "who"
+      B: "whose"
+      C: "which"
+      D: "where"
     correct: C
     next: g5
 
   - id: g5
     type: multiple_choice
-    topic: "Modal Passive"
-    question: "All user data ______ encrypted according to the new policy."
+    topic: "Future Perfect Passive"
+    question: "By the end of the year, the old servers _______ by new, more efficient ones."
     options:
-      A: "must be"
-      B: "must"
-      C: "must been"
-      D: "must to be"
-    correct: A
+      A: "will replace"
+      B: "will have been replaced"
+      C: "are replaced"
+      D: "have been replacing"
+    correct: B
     next: g6
 
   - id: g6
     type: multiple_choice
-    topic: "Reporting Verb Passive"
-    question: "The algorithm ______ to improve search accuracy by 40%."
+    topic: "Relative Clause (whose)"
+    question: "This is the programmer _______ code revolutionized the language learning app."
     options:
-      A: "believes"
-      B: "is believed"
-      C: "is believed to"
-      D: "believed to"
+      A: "who"
+      B: "which"
+      C: "whose"
+      D: "whom"
     correct: C
     next: g7
 
   - id: g7
     type: multiple_choice
-    topic: "Passive with Infinitive"
-    question: "The software update needs ______ before Friday."
+    topic: "Relative Clause (which)"
+    question: "The data, _______ is stored in the cloud, is completely secure and encrypted."
     options:
-      A: "to install"
-      B: "to be installed"
-      C: "installing"
-      D: "be installed"
+      A: "who"
+      B: "which"
+      C: "whose"
+      D: "where"
     correct: B
     next: g8
 
   - id: g8
     type: multiple_choice
-    topic: "Present Simple Passive"
-    question: "User passwords ______ in a secure database."
+    topic: "Present Continuous Passive"
+    question: "A new system update _______ right now, so the computer might restart soon."
     options:
-      A: "store"
-      B: "are stored"
-      C: "stored"
-      D: "have stored"
-    correct: B
+      A: "is being installed"
+      B: "installs"
+      C: "has installed"
+      D: "was being installed"
+    correct: A
     next: g9
 
   - id: g9
     type: multiple_choice
-    topic: "Past Simple Passive"
-    question: "The firewall ______ by the IT team yesterday."
+    topic: "Relative Clause (which)"
+    question: "The teacher recommended a standard user laptop _______ has at least 8GB of RAM."
     options:
-      A: "configures"
-      B: "is configured"
-      C: "was configured"
-      D: "configured"
+      A: "who"
+      B: "whose"
+      C: "which"
+      D: "where"
     correct: C
     next: g10
 
   - id: g10
     type: multiple_choice
-    topic: "Present Perfect Passive"
-    question: "Three major bugs ______ in the latest release."
+    topic: "Future Simple Passive"
+    question: "The workshop on AI in education _______ by Professor Smith next Monday."
     options:
-      A: "fix"
-      B: "are fixed"
-      C: "were fixed"
-      D: "have been fixed"
-    correct: D
-    next: r1
+      A: "will be conducted"
+      B: "will conduct"
+      C: "is conducting"
+      D: "has been conducted"
+    correct: A
+    next: d1
 
-  - id: r1
+  - id: d1
     type: question
-    answer_key:
-      expected: "1986"
-      points: 3
-      accept:
-        - "1986"
-    topic: "Reading Q1"
+    topic: "Dialogue Q1"
+    min_words: 5
     say: |
-      Based on the article "Distributed Representations of Words and Phrases" (Mikolov et al., 2013):
-      https://arxiv.org/abs/1310.4546
+      💡 Note: For this task, it's preferable to record your speech (use voice input or send audio) to practice fluency. However, written input is also accepted.
+      
+      Let's discuss your ideal computer! Are you looking for a laptop or a desktop, and what will you primarily use it for?
+    next: d2
 
-      What year does the earliest use of word representations date back to?
-    next: r2
-
-  - id: r2
+  - id: d2
     type: question
-    answer_key:
-      expected: "More than 100 billion words"
-      points: 3
-      accept:
-        - "100 billion"
-        - "100000000000"
-        - "100 bln"
-        - "100 млрд"
-    topic: "Reading Q2"
+    topic: "Dialogue Q2"
+    min_words: 5
     say: |
-      According to the article, approximately how many words can an optimized single-machine implementation train in one day?
-    next: r3
+      Got it. For those tasks, what specific features are the most important to you? (e.g., processor, RAM, battery life, screen size)
+    next: d3
 
-  - id: r3
+  - id: d3
     type: question
-    answer_key:
-      expected: "P(wi) = 1 - sqrt(t / f(wi))"
-      points: 3
-      accept:
-        - "1 - sqrt(t"
-        - "1-sqrt(t"
-        - "sqrt(t/f"
-        - "sqrt(t / f"
-    topic: "Reading Q3"
+    topic: "Dialogue Q3"
+    min_words: 5
     say: |
-      What is the mathematical formula used to calculate the probability of discarding a word during subsampling?
-    next: r4
+      Understood. Do you have a specific budget in mind, and how important is portability (weight) to you?
+    next: d4
 
-  - id: r4
+  - id: d4
     type: question
-    answer_key:
-      expected: "Around 10^-5"
-      points: 3
-      accept:
-        - "10^-5"
-        - "10-5"
-        - "1e-5"
-        - "0.00001"
-        - "10 в минус 5"
-    topic: "Reading Q4"
+    topic: "Dialogue Q4"
+    min_words: 5
     say: |
-      What is the typical value of the chosen threshold t in the subsampling formula?
-    next: r5
+      Perfect. Based on this, I can suggest looking at models with SSD storage and at least 8GB of RAM. What do you think about this direction?
+    next: dialogue_eval
 
-  - id: r5
-    type: question
-    answer_key:
-      expected: "300-dimensional vectors"
-      points: 3
-      accept:
-        - "300"
-    topic: "Reading Q5"
-    say: |
-      What is the dimensionality of the vectors used in the experiments summarized in Table 1?
-    next: essay_write
-
-  - id: essay_write
-    type: question
-    topic: "Opinion Essay"
-    say: |
-      Write a short essay (150-200 words) expressing your opinion on the following topic:
-
-      "Do you think the approach described in the article (using mathematical vectors to represent words) will change how we teach languages in the future? Why or why not?"
-
-      Try to use Passive Voice where appropriate and academic vocabulary.
-    next: final_grade
-
-  - id: final_grade
+  - id: dialogue_eval
     type: llm
     model: yandexgpt-5-lite
     temperature: 0
-    prompt: prompts.final_grade
+    prompt: prompts.dialogue_eval
     inputs: ["student_context", "answers"]
-    output: schemas.final_grade
-    save_as: final_grade
+    output: schemas.dialogue_eval
+    save_as: dialogue_eval
+    next: vocab_gen
+
+  - id: vocab_gen
+    type: llm
+    model: yandexgpt-5-lite
+    temperature: 0.3
+    prompt: prompts.vocab_gen
+    inputs: ["student_context", "answers"]
+    output: schemas.vocab_gen
+    save_as: vocab_gen
+    next: writing
+
+  - id: writing
+    type: question
+    topic: "Interactive Writing"
+    min_words: 100
+    say: |
+      Part C: Interactive Writing
+      
+      Task: Write a recommendation (about 120 words) to an English teacher about buying a basic user laptop.
+      
+      ⚠️ Mandatory requirements (will be strictly checked):
+      - Use Passive Voice at least 2 times
+      - Use Relative Clauses at least 2 times
+      - Use at least 4 vocabulary items from your personalized list below
+      
+      Your personalized vocabulary list (use at least 4 items):
+      {vocab_gen_vocabulary_md}
+      
+      Write your text below. When finished, send it to me.
+    next: writing_eval
+
+  - id: writing_eval
+    type: llm
+    model: yandexgpt-5-lite
+    temperature: 0
+    prompt: prompts.writing_eval
+    inputs: ["student_context", "answers", "vocab_gen"]
+    output: schemas.writing_eval
+    save_as: writing_eval
+    next: finish_gate
+
+  - id: finish_gate
+    type: gate
+    say: |
+      Your written task has been checked. If you're ready to receive the final Assessment Artifact with scores for all three parts to send to your teacher, please press the button below.
+    buttons: ["Finish!"]
     next: report
 
   - id: report
     type: llm
     model: yandexgpt-5-lite
-    temperature: 0.3
+    temperature: 0
     prompt: prompts.report
-    inputs: ["student_context", "answers", "final_grade"]
+    inputs: ["student_context", "answers", "dialogue_eval", "vocab_gen", "writing_eval"]
+    output: schemas.report
     save_as: report
     next: deliver
 
@@ -272,120 +266,234 @@ steps:
       build_file: templates.final_md
       send_to_teacher: "final_md + teacher_meta"
       send_to_student: "final_md"
-      update_profile: final_grade.profile_notes
-    say: "Here is your personalized feedback. Great work!"
+      update_profile: report.profile_notes
+      say: "Here is your personalized feedback. Great work!"
     next: done
 
 prompts:
-  final_grade: |
-    You are an expert English tutor. Evaluate the student's reading comprehension answers and opinion essay.
-
+  dialogue_eval: |
+    You are an expert English tutor. Evaluate the student's dialogue responses about their ideal computer.
     Student: 18 y.o., math major, B1 targeting B2.
-
-    GRAMMAR TEST (already scored automatically, do NOT re-score it): {mc_score}/{mc_max}.
-    Topics answered incorrectly: {mc_wrong_topics}
-    Article: "Distributed Representations of Words and Phrases and their Compositionality" (Mikolov et al., 2013)
-
-    READING (already checked against the key automatically): {reading_score}/{reading_max}
-    Answers the checker could not match — judge ONLY these, is the student's answer
-    equivalent in meaning to the expected one? Be strict about facts, lenient about wording:
-    {reading_unmatched}
-
-    ESSAY (opinion on whether vector representations will change language teaching):
-    {essay_write}
-
-    Evaluate the essay on two criteria. Pick the band by its description first, then a score inside it.
-
-    ESSAY TASK ACHIEVEMENT (0-15) — ЧЕРНОВИК, требует утверждения преподавателем:
-    13-15: clear opinion, 2+ developed arguments with support, 150-200 words, stays on topic
-    9-12:  opinion clear, arguments present but thin or unsupported, length slightly off
-    5-8:   opinion vague or arguments listed without development, noticeably short
-    0-4:   off topic, or too short to judge
-
-    ESSAY LANGUAGE (0-10) — ЧЕРНОВИК, требует утверждения преподавателем:
-    9-10: few errors, Passive Voice used correctly and naturally, academic vocabulary, connected text
-    7-8:  some tense or article errors, Passive attempted, limited linking
-    5-6:  regular basic errors, Passive avoided or misused, simple vocabulary, choppy
-    3-4:  errors impede understanding in places
-    0-2:  hard to follow
-
+    
+    Dialogue responses:
+    Q1 (laptop/desktop, primary use): {d1}
+    Q2 (important features): {d2}
+    Q3 (budget, portability): {d3}
+    Q4 (opinion on suggestion): {d4}
+    
+    Evaluate on two criteria. Pick the band by its description first, then a score inside it.
+    
+    DIALOGUE ACCURACY (0-10):
+    9-10: excellent grammar, precise vocabulary, coherent
+    7-8: good grammar with minor errors, appropriate vocabulary
+    5-6: noticeable errors but understandable, basic vocabulary
+    3-4: frequent errors impeding understanding
+    0-2: very poor accuracy
+    
+    DIALOGUE FLUENCY (0-10):
+    9-10: natural, confident, smooth flow
+    7-8: mostly natural with some hesitation
+    5-6: choppy but communicative
+    3-4: many pauses and false starts
+    0-2: very disjointed
+    
     Return STRICT JSON only:
     {{
-      "reading_verdicts": {{}},
-      "essay_task_achievement": 0,
-      "essay_language": 0,
-      "reading_feedback": "Brief comment on the reading answers",
-      "essay_strengths": ["...", "..."],
-      "essay_improvements": ["...", "..."],
-      "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}],
-      "recommended_vocabulary": [
-        {{"word": "...", "definition": "...", "example": "..."}}
+      "dialogue_accuracy": 0,
+      "dialogue_fluency": 0,
+      "dialogue_feedback": "Brief feedback on strengths and 2-3 key errors with corrections",
+      "corrected_dialogue": "Corrected version of student's responses",
+      "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}]
+    }}
+    
+    Rules:
+    - Do NOT output a total score — the system sums it up itself
+    - errors: 2-3 items from the dialogue, original — verbatim quote
+    - All feedback in ENGLISH
+
+  vocab_gen: |
+    You are an expert English tutor. Generate a personalized vocabulary list based on the student's dialogue about their ideal computer.
+    Student: 18 y.o., math major, B1 targeting B2.
+    
+    Dialogue responses:
+    Q1: {d1}
+    Q2: {d2}
+    Q3: {d3}
+    Q4: {d4}
+    
+    Generate 6-8 B2/C1 vocabulary items related to technology/computer purchase.
+    For each item, provide:
+    - word: the word/collocation
+    - translation: natural Russian equivalent
+    - definition: strict definition in Oxford Learner's Dictionaries style
+    - example: authentic example sentence
+    
+    Also generate a markdown-formatted list for display in the next task.
+    
+    Return STRICT JSON only:
+    {{
+      "vocabulary_list": [
+        {{"word": "...", "translation": "...", "definition": "...", "example": "..."}}
       ],
+      "vocabulary_md": "Markdown-formatted list with format:\n**Word** — Translation\nDefinition: ...\nExample: ..."
+    }}
+    
+    Rules:
+    - vocabulary_md should be readable markdown
+    - All definitions and examples in ENGLISH
+    - Translations in RUSSIAN
+
+  writing_eval: |
+    You are an expert English tutor. Evaluate the student's writing task.
+    Student: 18 y.o., math major, B1 targeting B2.
+    
+    Task: Write a recommendation (~120 words) to an English teacher about buying a basic user laptop.
+    Constraints:
+    - Use Passive Voice at least 2 times
+    - Use Relative Clauses at least 2 times
+    - Use at least 4 vocabulary items from the personalized list
+    
+    Personalized vocabulary list:
+    {vocab_gen_vocabulary_md}
+    
+    Student's text:
+    {writing}
+    
+    Evaluate on two criteria. Pick the band by its description first, then a score inside it.
+    
+    WRITING GRAMMAR (0-10):
+    9-10: excellent grammar, Passive Voice used correctly 2+ times, Relative Clauses 2+ times
+    7-8: good grammar with minor errors, constraints mostly met
+    5-6: noticeable errors, constraints partially met
+    3-4: frequent errors, constraints not met
+    0-2: very poor grammar
+    
+    WRITING VOCABULARY (0-10):
+    9-10: excellent vocabulary range, 4+ items from list used naturally
+    7-8: good vocabulary, 3-4 items from list used
+    5-6: basic vocabulary, 2-3 items from list used
+    3-4: limited vocabulary, 1-2 items from list used
+    0-2: very poor vocabulary
+    
+    Check constraints:
+    - Count Passive Voice instances
+    - Count Relative Clauses instances
+    - List vocabulary items used from personalized list
+    
+    Return STRICT JSON only:
+    {{
+      "writing_grammar": 0,
+      "writing_vocabulary": 0,
+      "feedback_text": "Detailed feedback including:\n1. Task Achievement (word count ~120, topic adherence)\n2. Grammar Constraints (found X Passive Voice, Y Relative Clauses)\n3. Vocabulary (used N items from list, list them)\n4. Corrections (if any)\n5. Message: 'Your written task has been checked. If you're ready to receive the final Assessment Artifact, press Finish!'",
+      "constraint_check": {{
+        "passive_count": 0,
+        "relative_clause_count": 0,
+        "vocabulary_used": ["...", "..."]
+      }},
+      "errors": [{{"original": "...", "corrected": "...", "explanation": "..."}}]
+    }}
+    
+    Rules:
+    - Do NOT output a total score — the system sums it up itself
+    - errors: 2-3 items from the text, original — verbatim quote
+    - feedback_text must include the Finish! message
+    - All feedback in ENGLISH
+
+  report: |
+    You are an expert English tutor. Generate a final assessment artifact for the teacher.
+    Student: 18 y.o., math major, B1 targeting B2.
+    
+    GRAMMAR TEST (Part A): {mc_score}/10
+    Topics answered incorrectly: {mc_wrong_topics}
+    
+    DIALOGUE (Part B):
+    Accuracy: {dialogue_eval_dialogue_accuracy}/10
+    Fluency: {dialogue_eval_dialogue_fluency}/10
+    Feedback: {dialogue_eval_dialogue_feedback}
+    
+    PERSONALIZED VOCABULARY LIST:
+    {vocab_gen_vocabulary_md}
+    
+    WRITING (Part C):
+    Grammar: {writing_eval_writing_grammar}/10
+    Vocabulary: {writing_eval_writing_vocabulary}/10
+    Feedback: {writing_eval_feedback_text}
+    Constraint check: {writing_eval_constraint_check}
+    
+    Student's writing:
+    {writing}
+    
+    Generate a markdown-formatted assessment artifact following this EXACT structure:
+    
+    # АРТЕФАКТ: ОЦЕНКА МОДУЛЯ 1 (ПОВТОРЕНИЕ)
+    
+    ## Часть A. Grammar Bot Training (Макс. 10 баллов)
+    *(List student's answers for all 10 questions, correct answers, and brief explanations. 1 point per correct answer. Total: X/10)*
+    
+    ## Часть B. Dialogue & Personalized Lexis (Макс. 20 баллов)
+    **1. Corrected Dialogue Script:**
+    *(Brief analysis of 2-3 main errors from the dialogue with corrections)*
+    
+    **2. Personalized Vocabulary List:**
+    *(Full list of 6-8 items in format: Word / Translation / Definition / Example)*
+    
+    **Оценка:** Accuracy: X/10, Fluency: Y/10. Итого: Z/20.
+    
+    ## Часть C. Interactive Writing (Макс. 20 баллов)
+    **Текст студента:**
+    *(Quote of student's text)*
+    
+    **Feedback & Constraint Check:**
+    - Task Achievement: (comment on word count ~120 and topic)
+    - Grammar Constraints: (confirmation: found X Passive Voice, Y Relative Clauses)
+    - Vocabulary: (confirmation: used N items from personalized list, list them)
+    - Corrections: (corrected errors if any)
+    
+    **Оценка:** Grammar & Accuracy: X/10, Vocabulary & Task Fulfillment: Y/10. Итого: Z/20.
+    
+    ---
+    
+    ### ИТОГОВАЯ ОЦЕНКА: [Total] / 50
+    
+    *Professional Tutor's Note: Отличная работа над повторением материала! Ваша сильная сторона: [указать]. Зона для роста: [указать].*
+    
+    Return STRICT JSON only:
+    {{
+      "feedback_text": "Markdown artifact text following the structure above",
       "profile_notes": {{
         "estimated_level": "B1 | B1+ | B2",
         "vocabulary_gaps": ["..."],
         "grammar_gaps": ["..."]
       }}
     }}
-
+    
     Rules:
-    - Do NOT output a total score — the system sums it up itself
-    - reading_verdicts: one key per unmatched answer id listed above, value true or false, e.g. {{"r3": false}}; empty object if none are listed
-    - Do NOT re-score the grammar test or the matched reading answers
-    - errors: 2-3 items from the essay, original — verbatim quote
-    - recommended_vocabulary: 6-8 advanced B2-C1 words related to NLP, machine learning, or academic writing that the student should learn
-    - All feedback in ENGLISH
-
-  report: |
-    You are a friendly English tutor. Write a personalized feedback message to the student based on their results.
-
-    STUDENT: 18 years old, math major, B1-B2 level.
-
-    GRAMMAR TEST: {mc_score}/{mc_max}
-    Topics answered incorrectly: {mc_wrong_topics}
-
-    READING COMPREHENSION: {reading_score}/{reading_max}
-    Student's answers:
-    Q1 (year): {r1}
-    Q2 (words per day): {r2}
-    Q3 (formula): {r3}
-    Q4 (threshold t): {r4}
-    Q5 (dimensionality): {r5}
-
-    Correct answers: Q1: 1986, Q2: More than 100 billion words, Q3: P(wi) = 1 - sqrt(t / f(wi)), Q4: Around 10^-5, Q5: 300-dimensional vectors
-
-    Reading feedback: {final_grade_reading_feedback}
-
-    ESSAY:
-    {essay_write}
-
-    Essay scores:
-    - Task Achievement: {final_grade_essay_task_achievement}/15
-    - Language: {final_grade_essay_language}/10
-
-    Essay strengths: {final_grade_essay_strengths}
-    Essay improvements: {final_grade_essay_improvements}
-
-    Please write a warm, personalized feedback message in English. Include:
-    1. Brief analysis of their reading and essay results (what they did well, what needs work)
-    2. Specific recommendations for grammar (especially Passive Voice)
-    3. 6-8 advanced B2-C1 words/collocations related to NLP/math they should learn (with definitions and examples)
-    4. A motivating conclusion
-
-    Write simply and clearly, like a tutor talking to a student. No complex markdown structures, just clear text with basic formatting.
-
-    Output ONLY the Markdown feedback text. Do NOT wrap in JSON.
+    - feedback_text must be valid markdown
+    - Calculate total score: mc_score + dialogue_accuracy + dialogue_fluency + writing_grammar + writing_vocabulary
+    - All content in RUSSIAN except vocabulary definitions/examples
+    - Do NOT include teacher meta information (tokens, flags, hash) — the system adds it separately
 
 schemas:
-  final_grade:
-    reading_verdicts: "dict id -> bool"
-    essay_task_achievement: "int 0..15"
-    essay_language: "int 0..10"
-    reading_feedback: "str"
-    essay_strengths: "list"
-    essay_improvements: "list"
+  dialogue_eval:
+    dialogue_accuracy: "int 0..10"
+    dialogue_fluency: "int 0..10"
+    dialogue_feedback: "str"
+    corrected_dialogue: "str"
     errors: "list"
-    recommended_vocabulary: "list"
+  
+  vocab_gen:
+    vocabulary_list: "list"
+    vocabulary_md: "str"
+  
+  writing_eval:
+    writing_grammar: "int 0..10"
+    writing_vocabulary: "int 0..10"
+    feedback_text: "str"
+    constraint_check: "dict"
+    errors: "list"
+  
+  report:
+    feedback_text: "str (markdown artifact)"
     profile_notes:
       estimated_level: "str"
       vocabulary_gaps: "list"
@@ -394,7 +502,7 @@ schemas:
 templates:
   final_md: |
     {report_feedback_text}
-
+  
   teacher_meta: |
     ### For teacher only
     Raw answers: {answers_raw}
