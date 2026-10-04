@@ -10,6 +10,9 @@ import uuid
 from datetime import datetime
 from openai import OpenAI
 import time
+import io
+import wave
+import requests
 
 st.set_page_config(page_title="AI English Tutor", page_icon="🎓", layout="wide")
 
@@ -281,6 +284,66 @@ def fill_step_text(text, context):
         filled = filled.replace("{" + key + "}", "")
     return filled
 
+STT_URL = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize"
+
+def split_wav(wav_bytes, max_seconds=29):
+    """Запись из браузера (WAV) → куски чистого звука без заголовка.
+
+    Синхронное распознавание Yandex принимает до 30 секунд и до 1 МБ за раз,
+    а ответ на вопрос бывает длиннее. Возвращает (куски, частота, секунды)."""
+    with wave.open(io.BytesIO(wav_bytes)) as w:
+        if w.getnchannels() != 1 or w.getsampwidth() != 2:
+            raise ValueError("expected 16-bit mono recording")
+        rate = w.getframerate()
+        frames = w.readframes(w.getnframes())
+    size = rate * 2 * max_seconds
+    chunks = [frames[i:i + size] for i in range(0, len(frames), size)]
+    return chunks, rate, len(frames) / (rate * 2)
+
+def transcribe_speech(wav_bytes, api_key, post=None):
+    """Распознаёт английскую речь через Yandex SpeechKit. Возвращает (текст, секунды, ошибка)."""
+    post = post or requests.post
+    try:
+        chunks, rate, seconds = split_wav(wav_bytes)
+    except (wave.Error, ValueError, EOFError) as e:
+        return "", 0, f"bad audio: {e}"
+    parts = []
+    for chunk in chunks:
+        try:
+            response = post(
+                STT_URL,
+                params={"lang": "en-US", "format": "lpcm", "sampleRateHertz": rate},
+                data=chunk,
+                headers={"Authorization": f"Api-Key {api_key}"},
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return "", round(seconds, 1), f"network: {e}"
+        if response.status_code != 200:
+            return "", round(seconds, 1), f"SpeechKit {response.status_code}: {response.text[:200]}"
+        parts.append((response.json().get("result") or "").strip())
+    return " ".join(p for p in parts if p), round(seconds, 1), None
+
+def format_voice_stats(steps, flags):
+    """Как студент отвечал на вопросы с микрофоном: голосом (секунды, слова в минуту) или текстом.
+    Для оценки беглости — модель видит только текст, а темп речи есть только в записи."""
+    spoken = {}
+    for f in flags or []:
+        m = re.match(r"voice:([^:]+):([\d.]+)s:(\d+)w$", str(f))
+        if m:
+            spoken[m.group(1)] = (float(m.group(2)), int(m.group(3)))
+    lines = []
+    for s in steps or []:
+        if not s.get("voice"):
+            continue
+        if s["id"] in spoken:
+            secs, words = spoken[s["id"]]
+            wpm = round(words / secs * 60) if secs else 0
+            lines.append(f"{s['id']}: spoken, {secs:g} s, {words} words (~{wpm} words per minute)")
+        else:
+            lines.append(f"{s['id']}: typed, no recording")
+    return "\n".join(lines) or "no voice questions"
+
 def get_or_create_student(full_name):
     name_key = normalize_name(full_name)
     conn = get_db_connection()
@@ -445,7 +508,30 @@ def render_question_step(step, min_words=15):
     st.session_state.setdefault(f"shown_{step['id']}", time.time())
     st.markdown(f"**{step.get('topic', '')}**")
     st.write(step.get("say"))
-    
+
+    voice_key = f"voice_stats_{step['id']}"
+    if step.get("voice"):
+        audio = st.audio_input("🎙 Record your answer", sample_rate=16000, key=f"voice_{step['id']}")
+        if audio is not None:
+            data = audio.getvalue()
+            digest = hashlib.sha256(data).hexdigest()
+            # Распознаём каждую запись один раз: виджет отдаёт её на каждой перерисовке.
+            if st.session_state.get(f"voice_digest_{step['id']}") != digest:
+                st.session_state[f"voice_digest_{step['id']}"] = digest
+                with st.spinner("Recognizing your speech..."):
+                    text, seconds, error = transcribe_speech(data, YANDEX_API_KEY)
+                if error:
+                    st.session_state[voice_key] = {"error": error}
+                else:
+                    # Поле ответа ещё не нарисовано в этом проходе — значение можно подставить.
+                    st.session_state[f"answer_{step['id']}"] = text
+                    st.session_state[voice_key] = {"seconds": seconds, "words": len(text.split())}
+            stats = st.session_state.get(voice_key, {})
+            if stats.get("error"):
+                st.warning("Voice recognition didn't work this time — please type your answer below.")
+            else:
+                st.caption("Your speech is in the box below — you can correct it before sending.")
+
     user_answer = st.text_area("Your answer (in English):", height=150, key=f"answer_{step['id']}")
     
     pending_key = f"pending_{step['id']}"
@@ -467,9 +553,15 @@ def render_question_step(step, min_words=15):
         elapsed = round(time.time() - st.session_state.get(f"shown_{step['id']}", time.time()), 1)
         st.session_state.setdefault("timings", {})[step["id"]] = elapsed
         
-        if elapsed > 0 and len(user_answer) > 120 and len(user_answer) / elapsed > 8:
+        stats = st.session_state.get(voice_key, {})
+        if stats.get("error"):
+            flags.append(f"stt_error:{step['id']}")
+        elif stats and user_answer.strip():
+            # Надиктованный ответ появляется в поле мгновенно — это не вставка из чата.
+            flags.append(f"voice:{step['id']}:{stats['seconds']:g}s:{stats['words']}w")
+        elif elapsed > 0 and len(user_answer) > 120 and len(user_answer) / elapsed > 8:
             flags.append(f"typing_too_fast:{step['id']}")
-        
+
         st.session_state.pop(pending_key, None)
         st.session_state.pop(forced_key, None)
         return user_answer, flags
@@ -513,13 +605,14 @@ def render_llm_step(step, task_data, answers, profile, student_context, unit_con
     context = build_llm_context(
         answers, profile, student_context, unit_config, mc, reading,
         st.session_state.get("llm_results", {}), steps=task_data.get("steps", []),
+        flags=st.session_state.get("flags", []),
     )
     prompt = format_prompt_with_context(prompt_template, context)
     
     with st.spinner("🧠 AI is analyzing your answer (this may take 10-20 seconds)..."):
         return _run_llm_step(step, task_data, prompt, model_name)
 
-def build_llm_context(answers, profile, student_context, unit_config=None, mc=None, reading=None, llm_results=None, steps=None):
+def build_llm_context(answers, profile, student_context, unit_config=None, mc=None, reading=None, llm_results=None, steps=None, flags=None):
     context = {
         "student_context": json.dumps(student_context, ensure_ascii=False) if isinstance(student_context, dict) else str(student_context),
     }
@@ -539,6 +632,7 @@ def build_llm_context(answers, profile, student_context, unit_config=None, mc=No
     context["mc_wrong_topics"] = ", ".join(mc["wrong_topics"]) if mc["wrong_topics"] else "none"
     if steps:
         context["mc_table"] = mc_table(answers, steps)
+        context["voice_stats"] = format_voice_stats(steps, flags)
 
     if reading:
         context["reading_score"] = reading.get("score", 0)
