@@ -20,7 +20,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 PURE = {
     "resolve_ref", "build_prompt", "_KeepMissing", "build_llm_context",
     "flatten_answers", "flatten_llm_results", "extract_total", "mc_table",
-    "score_multiple_choice", "compute_total", "scores_so_far", "score_llm_result",
+    "score_multiple_choice", "compute_total", "scores_so_far", "score_llm_result", "format_voice_stats",
 }
 
 tree = ast.parse((ROOT / "app.py").read_text(encoding="utf-8"))
@@ -123,7 +123,8 @@ def main():
         mc = ns["score_multiple_choice"](answers, steps, points)
         
         # Для dialogue_eval нужен только контекст диалога
-        ctx_dialogue = ns["build_llm_context"](answers, {}, student_context, unit, mc, None, {})
+        # Как в app.py: шаги и флаги нужны для {voice_stats}; тестовые студенты отвечают текстом
+        ctx_dialogue = ns["build_llm_context"](answers, {}, student_context, unit, mc, None, {}, steps=steps, flags=[])
         prompt_dialogue, missing_dialogue = ns["build_prompt"](dialogue_tpl, ctx_dialogue)
         
         print(f"=== {name}: тест {mc['score']}/{mc['max']}")

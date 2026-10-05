@@ -3,7 +3,8 @@
 Вынимаем нужные def-ы через AST и выполняем их в изолированном пространстве имён.
 Запуск:  python3 test_fixes.py   (из корня репозитория)
 """
-import ast, json, re, secrets, pathlib, sqlite3, tempfile, uuid
+import ast, io, json, re, secrets, pathlib, sqlite3, tempfile, uuid, wave
+import requests
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -14,6 +15,7 @@ wanted = {
     "normalize_name", "is_valid_name", "resolve_ref", "build_prompt", "_KeepMissing",
     "scores_so_far", "score_llm_result", "mc_table", "fill_step_text", "build_llm_context",
     "init_db", "get_or_create_student", "allow_retry", "check_attempts", "find_in_progress_session",
+    "split_wav", "transcribe_speech", "format_voice_stats", "STT_URL",
 }
 DB_FILE = pathlib.Path(tempfile.mkdtemp()) / "tutor.db"
 
@@ -24,9 +26,11 @@ def get_db_connection():
     return conn
 
 
-ns = {"json": json, "re": re, "secrets": secrets, "uuid": uuid, "get_db_connection": get_db_connection}
+ns = {"json": json, "re": re, "secrets": secrets, "uuid": uuid, "get_db_connection": get_db_connection,
+      "io": io, "wave": wave, "requests": requests}
 module = ast.Module(
-    body=[n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in wanted],
+    body=[n for n in tree.body if (isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in wanted)
+          or (isinstance(n, ast.Assign) and any(getattr(t, "id", None) in wanted for t in n.targets))],
     type_ignores=[],
 )
 exec(compile(module, "<app-subset>", "exec"), ns)
@@ -153,5 +157,35 @@ conn.close()
 unfinished = ns["find_in_progress_session"]("Anna Smirnova", "unit_vol3-1")
 assert json.loads(unfinished["grade_json"])["vocab_gen"]["vocabulary_md"].startswith("**portability**")
 print("13. после обновления вкладки словарь и баллы за диалог возвращаются из базы")
+
+# --- 14. запись с микрофона: режется на куски до 29 с, уходит в SpeechKit без заголовка WAV ---
+def make_wav(seconds, rate=16000, channels=1):
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(channels); w.setsampwidth(2); w.setframerate(rate)
+        w.writeframes(b"\x00\x01" * channels * int(rate * seconds))
+    return buf.getvalue()
+
+sent = []
+class Reply:
+    def __init__(self, code, body): self.status_code, self.body, self.text = code, body, json.dumps(body)
+    def json(self): return self.body
+def fake_post(url, params, data, headers, timeout):
+    sent.append({"url": url, "params": params, "size": len(data), "auth": headers["Authorization"]})
+    return Reply(200, {"result": f"part {len(sent)}"})
+text, seconds, error = ns["transcribe_speech"](make_wav(40), "KEY", post=fake_post)
+assert error is None and text == "part 1 part 2" and seconds == 40.0, (text, seconds, error)
+assert [x["size"] for x in sent] == [29 * 16000 * 2, 11 * 16000 * 2], sent  # чистый звук, без 44 байт заголовка
+assert sent[0]["params"] == {"lang": "en-US", "format": "lpcm", "sampleRateHertz": 16000}, sent[0]
+assert sent[0]["auth"] == "Api-Key KEY" and sent[0]["url"].endswith("/speech/v1/stt:recognize")
+denied = lambda *a, **k: Reply(401, {"error_message": "Unauthorized"})
+assert ns["transcribe_speech"](make_wav(3), "KEY", post=denied)[2].startswith("SpeechKit 401")
+assert ns["transcribe_speech"](make_wav(3, channels=2), "KEY", post=fake_post)[2].startswith("bad audio")
+print("14. 40 с записи → 2 запроса по 29 и 11 с, en-US, lpcm 16 кГц, Api-Key; отказ доступа и стерео — понятная ошибка")
+
+# --- 15. модель видит, какие ответы надиктованы и в каком темпе ---
+stats = ns["format_voice_stats"](steps, ["fast_answer", "voice:d1:24s:52w", "stt_error:d2"])
+assert "d1: spoken, 24 s, 52 words (~130 words per minute)" in stats and "d2: typed, no recording" in stats, stats
+print("15. для оценки беглости:", stats.splitlines()[0], "| d2–d4 — текстом")
 
 print("\nвсе проверки прошли")

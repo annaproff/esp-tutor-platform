@@ -161,6 +161,7 @@ steps:
 
   - id: d1
     type: question
+    voice: true
     topic: "Dialogue Q1"
     min_words: 5
     say: |
@@ -171,6 +172,7 @@ steps:
 
   - id: d2
     type: question
+    voice: true
     topic: "Dialogue Q2"
     min_words: 5
     say: |
@@ -179,6 +181,7 @@ steps:
 
   - id: d3
     type: question
+    voice: true
     topic: "Dialogue Q3"
     min_words: 5
     say: |
@@ -187,6 +190,7 @@ steps:
 
   - id: d4
     type: question
+    voice: true
     topic: "Dialogue Q4"
     min_words: 5
     say: |
@@ -298,6 +302,10 @@ prompts:
     Q2 (important features): {d2}
     Q3 (budget, portability): {d3}
     Q4 (opinion on suggestion): {d4}
+
+    How each answer was given. Spoken answers were transcribed by speech recognition:
+    do not penalize missing punctuation or capitalization in them.
+    {voice_stats}
     
     Evaluate on two criteria. Pick the band by its description first, then a score inside it.
     
